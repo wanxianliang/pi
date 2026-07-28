@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { createRequire } from "module";
@@ -13,6 +16,46 @@ const codeExecSchema = Type.Object({
 });
 
 export type CodeExecInput = Static<typeof codeExecSchema>;
+
+export function formatBashTruncatedOutput(text: string): string {
+	const envMaxLines = process.env.CODE_EXEC_BASH_MAX_LINES || process.env.PI_CODE_EXEC_BASH_MAX_LINES;
+	const threshold = envMaxLines ? parseInt(envMaxLines, 10) : 100;
+	const maxLines = Number.isFinite(threshold) && threshold > 0 ? threshold : 100;
+
+	const lines = text.split("\n");
+	if (lines.length <= maxLines) {
+		return text;
+	}
+
+	const tmpDir = existsSync("/tmp") ? "/tmp" : tmpdir();
+	if (!existsSync(tmpDir)) {
+		mkdirSync(tmpDir, { recursive: true });
+	}
+
+	const fileName = `code_exec_bash_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.log`;
+	const filePath = join(tmpDir, fileName);
+	writeFileSync(filePath, text, "utf8");
+
+	const first5 = lines.slice(0, 5).join("\n");
+	const last30Count = Math.min(30, Math.max(0, lines.length - 5));
+	const last30 = lines.slice(lines.length - last30Count).join("\n");
+	const omittedCount = lines.length - 5 - last30Count;
+
+	const parts = [
+		`[Output truncated: total ${lines.length} lines exceeds threshold of ${maxLines} lines. Full output saved to ${filePath}]`,
+		"",
+		"First 5 lines:",
+		first5,
+	];
+
+	if (omittedCount > 0) {
+		parts.push("", `... [${omittedCount} lines omitted, full output at ${filePath}] ...`);
+	}
+
+	parts.push("", "Last 30 lines:", last30);
+
+	return parts.join("\n");
+}
 
 /**
  * Create a `code_exec` tool definition that executes JavaScript code in the pi agent runtime.
@@ -48,6 +91,8 @@ export function createCodeExecToolDefinition(
 			ctx?: ExtensionContext,
 		) {
 			const pi: Record<string, (params: unknown) => Promise<unknown>> = {};
+			const bashOutputs = new Set<string>();
+			const bashErrors = new Set<Error>();
 
 			const allTools = {
 				...tools,
@@ -59,14 +104,30 @@ export function createCodeExecToolDefinition(
 					if (signal?.aborted) {
 						return Promise.reject(new Error("aborted"));
 					}
-					const res = await toolDef.execute(`${name}-${Date.now()}`, params, signal, undefined, ctx!);
+					let res: any;
+					try {
+						res = await toolDef.execute(`${name}-${Date.now()}`, params, signal, undefined, ctx!);
+					} catch (err) {
+						if (name === "bash" && err instanceof Error) {
+							bashErrors.add(err);
+						}
+						throw err;
+					}
+					let text: string | undefined;
 					if (res && Array.isArray(res.content)) {
-						return res.content
+						text = res.content
 							.filter((c: any) => c && typeof c.text === "string")
 							.map((c: any) => c.text)
 							.join("\n");
+					} else if (typeof res === "string") {
+						text = res;
 					}
-					return res;
+
+					if (name === "bash" && text !== undefined) {
+						bashOutputs.add(text);
+						return text;
+					}
+					return text ?? res;
 				};
 			}
 
@@ -93,25 +154,34 @@ export function createCodeExecToolDefinition(
 			};
 
 			try {
-				// Create an async function to support await, require and process
+				// Create an async function to support await, require, process, fs, and path
 				const AsyncFunction = (async () => {}).constructor as new (
 					...args: string[]
 				) => (...args: any[]) => Promise<any>;
-				const fn = new AsyncFunction("pi", "console", "require", "process", code);
+				const fn = new AsyncFunction("pi", "console", "require", "process", "fs", "path", code);
+				const nodeFs = require("node:fs");
+				const nodePath = require("node:path");
 				const result = timeoutPromise
-					? await Promise.race([fn(pi, customConsole, require, process), timeoutPromise])
-					: await fn(pi, customConsole, require, process);
+					? await Promise.race([fn(pi, customConsole, require, process, nodeFs, nodePath), timeoutPromise])
+					: await fn(pi, customConsole, require, process, nodeFs, nodePath);
 
 				let output = "";
 				if (logs.length > 0) {
 					if (result !== undefined) {
-						const resultStr = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+						let resultStr = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+						if (typeof result === "string" && bashOutputs.has(result)) {
+							resultStr = formatBashTruncatedOutput(result);
+						}
 						output = `[stdout]\n${logs.join("\n")}\n\n[return]\n${resultStr}`;
 					} else {
 						output = logs.join("\n");
 					}
 				} else if (result !== undefined) {
-					output = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+					if (typeof result === "string" && bashOutputs.has(result)) {
+						output = formatBashTruncatedOutput(result);
+					} else {
+						output = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+					}
 				} else {
 					output = "Success";
 				}
@@ -127,6 +197,9 @@ export function createCodeExecToolDefinition(
 					},
 				};
 			} catch (err) {
+				if (err instanceof Error && bashErrors.has(err)) {
+					err.message = formatBashTruncatedOutput(err.message);
+				}
 				const message = err instanceof Error ? err.message : String(err);
 				if (message.startsWith("timeout:")) {
 					const timeoutSecs = message.split(":")[1];
