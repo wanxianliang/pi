@@ -2562,6 +2562,17 @@ export class AgentSession {
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
 					bash: { commandPrefix: shellCommandPrefix, shellPath },
+					getExtraTools: () => {
+						const extraTools: Record<string, ToolDefinition<any, any, any>> = {};
+						if (this._toolDefinitions) {
+							for (const [name, entry] of this._toolDefinitions.entries()) {
+								if (name !== "code_exec") {
+									extraTools[name] = entry.definition;
+								}
+							}
+						}
+						return extraTools;
+					},
 				});
 
 		this._baseToolDefinitions = new Map(

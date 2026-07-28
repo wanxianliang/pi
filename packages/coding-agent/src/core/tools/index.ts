@@ -85,8 +85,17 @@ import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } fro
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
-export const allToolNames: Set<ToolName> = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "code_exec";
+export const allToolNames: Set<ToolName> = new Set([
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+	"code_exec",
+]);
 
 export interface ToolsOptions {
 	read?: ReadToolOptions;
@@ -96,6 +105,7 @@ export interface ToolsOptions {
 	grep?: GrepToolOptions;
 	find?: FindToolOptions;
 	ls?: LsToolOptions;
+	getExtraTools?: () => Record<string, ToolDefinition<any, any, any>>;
 }
 
 export function createToolDefinition(toolName: ToolName, cwd: string, options?: ToolsOptions): ToolDef {
@@ -170,7 +180,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 	};
 	return {
 		...tools,
-		code_exec: createCodeExecToolDefinition(tools),
+		code_exec: createCodeExecToolDefinition(tools, options?.getExtraTools),
 	} as Record<ToolName, ToolDef>;
 }
 
@@ -192,7 +202,7 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 	];
 }
 
-export function createAllTools(cwd: string, options?: ToolsOptions): Record<ToolName, Tool> {
+export function createAllTools(cwd: string, options?: ToolsOptions): Record<Exclude<ToolName, "code_exec">, Tool> {
 	return {
 		read: createReadTool(cwd, options?.read),
 		bash: createBashTool(cwd, options?.bash),

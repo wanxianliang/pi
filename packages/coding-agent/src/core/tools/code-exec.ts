@@ -1,5 +1,9 @@
+import { Text } from "@earendil-works/pi-tui";
+import { createRequire } from "module";
 import { type Static, Type } from "typebox";
-import type { ToolDefinition } from "../extensions/types.ts";
+import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+
+const require = createRequire(import.meta.url);
 
 const codeExecSchema = Type.Object({
 	code: Type.String({ description: "JavaScript code to execute in the pi agent runtime" }),
@@ -21,41 +25,46 @@ export type CodeExecInput = Static<typeof codeExecSchema>;
  */
 export function createCodeExecToolDefinition(
 	tools: Record<string, ToolDefinition<any, any, any>>,
+	getExtraTools?: () => Record<string, ToolDefinition<any, any, any>>,
 ): ToolDefinition<typeof codeExecSchema> {
 	return {
 		name: "code_exec",
 		label: "code_exec",
 		description:
-			"Execute JavaScript code in the pi agent runtime. " +
-			"The code has access to a `pi` object with methods for all available tools: " +
-			"pi.read(params), pi.bash(params), pi.edit(params), pi.write(params), " +
-			"pi.grep(params), pi.find(params), pi.ls(params). " +
-			"Each method returns a Promise resolving to the tool result content. " +
-			"Supports Promise.all() for parallel execution and standard JavaScript if/else " +
-			"for conditional logic.",
-		promptSnippet: "Execute JavaScript code (pi.read, pi.bash, pi.find, etc.)",
-		promptGuidelines: [
-			"Use pi.read({ path }) to read files",
-			"Use pi.bash({ command, timeout? }) to run shell commands",
-			"Use pi.edit({ filePath, oldString, newText }) to edit files",
-			"Use pi.write({ path, content }) to write files",
-			"Use pi.grep({ pattern, path }) to search files",
-			"Use pi.find({ path, glob }) to find files",
-			"Use pi.ls({ path }) to list directory contents",
-			"Use Promise.all([...]) for parallel tool execution",
-			"Use standard JavaScript if/else for conditional logic",
-		],
+			"Execute JavaScript code to coordinate and orchestrate basic pi tools (pi.read, pi.bash, pi.write, etc.). " +
+			"Prefer this tool over sequential single tool calls to achieve maximum execution efficiency and minimize turn overhead.",
+		promptSnippet:
+			"Coordinate and orchestrate basic pi tools (pi.read, pi.bash, pi.write) using JavaScript to boost efficiency",
+		promptGuidelines: [],
 		parameters: codeExecSchema,
 		executionMode: "sequential" as const,
-		async execute(_toolCallId: string, { code, timeout }: { code: string; timeout?: number }, signal?: AbortSignal) {
+		async execute(
+			_toolCallId: string,
+			{ code, timeout }: { code: string; timeout?: number },
+			signal?: AbortSignal,
+			_onUpdate?: any,
+			ctx?: ExtensionContext,
+		) {
 			const pi: Record<string, (params: unknown) => Promise<unknown>> = {};
 
-			for (const [name, toolDef] of Object.entries(tools)) {
-				pi[name] = (params: unknown) => {
+			const allTools = {
+				...tools,
+				...(getExtraTools ? getExtraTools() : {}),
+			};
+
+			for (const [name, toolDef] of Object.entries(allTools)) {
+				pi[name] = async (params: unknown) => {
 					if (signal?.aborted) {
 						return Promise.reject(new Error("aborted"));
 					}
-					return toolDef.execute(`${name}-${Date.now()}`, params, signal, undefined, undefined as any);
+					const res = await toolDef.execute(`${name}-${Date.now()}`, params, signal, undefined, ctx!);
+					if (res && Array.isArray(res.content)) {
+						return res.content
+							.filter((c: any) => c && typeof c.text === "string")
+							.map((c: any) => c.text)
+							.join("\n");
+					}
+					return res;
 				};
 			}
 
@@ -67,18 +76,53 @@ export function createCodeExecToolDefinition(
 						})
 					: undefined;
 
-			try {
-				const fn = new Function("pi", code);
-				const result = timeoutPromise ? await Promise.race([fn(pi), timeoutPromise]) : await fn(pi);
+			const logs: string[] = [];
+			const formatLog =
+				(prefix = "") =>
+				(...args: any[]) => {
+					const msg = args.map((arg) => (typeof arg === "object" ? JSON.stringify(arg) : String(arg))).join(" ");
+					logs.push(prefix ? `[${prefix}] ${msg}` : msg);
+				};
+			const customConsole = {
+				log: formatLog(),
+				info: formatLog(),
+				warn: formatLog("WARN"),
+				error: formatLog("ERROR"),
+			};
 
+			try {
+				// Create an async function to support await, require and process
+				const AsyncFunction = (async () => {}).constructor as new (
+					...args: string[]
+				) => (...args: any[]) => Promise<any>;
+				const fn = new AsyncFunction("pi", "console", "require", "process", code);
+				const result = timeoutPromise
+					? await Promise.race([fn(pi, customConsole, require, process), timeoutPromise])
+					: await fn(pi, customConsole, require, process);
+
+				let output = "";
+				if (logs.length > 0) {
+					if (result !== undefined) {
+						const resultStr = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+						output = `[stdout]\n${logs.join("\n")}\n\n[return]\n${resultStr}`;
+					} else {
+						output = logs.join("\n");
+					}
+				} else if (result !== undefined) {
+					output = typeof result === "object" ? JSON.stringify(result, null, 2) : String(result);
+				} else {
+					output = "Success";
+				}
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: String(result === undefined ? "undefined" : result),
+							text: output,
 						},
 					],
-					details: undefined,
+					details: {
+						code,
+					},
 				};
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
@@ -90,6 +134,12 @@ export function createCodeExecToolDefinition(
 			} finally {
 				if (timeoutHandle) clearTimeout(timeoutHandle);
 			}
+		},
+		renderCall(args, _theme, context) {
+			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+			const formattedCode = args.code ? `\n${args.code}` : "";
+			text.setText(`code_exec:${formattedCode}`);
+			return text;
 		},
 	};
 }
