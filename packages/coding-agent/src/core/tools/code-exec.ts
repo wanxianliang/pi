@@ -1,6 +1,8 @@
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import chalk from "chalk";
 import { createRequire } from "module";
 import { type Static, Type } from "typebox";
+import { highlightCode } from "../../modes/interactive/theme/theme.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 
 const require = createRequire(import.meta.url);
@@ -136,10 +138,62 @@ export function createCodeExecToolDefinition(
 			}
 		},
 		renderCall(args, _theme, context) {
-			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			const formattedCode = args.code ? `\n${args.code}` : "";
-			text.setText(`code_exec:${formattedCode}`);
-			return text;
+			const state = context.state;
+			let spinnerStr = "";
+			if (context.isPartial) {
+				if (context.executionStarted) {
+					const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+					if (!state.spinnerInterval) {
+						state.spinnerFrame = 0;
+						state.spinnerInterval = setInterval(() => {
+							state.spinnerFrame = (state.spinnerFrame + 1) % frames.length;
+							context.invalidate();
+						}, 80);
+					}
+					spinnerStr = ` ${chalk.yellow(frames[state.spinnerFrame])} ${chalk.gray("Running...")}`;
+				} else {
+					spinnerStr = ` ${chalk.gray("Writing code...")}`;
+				}
+			} else {
+				if (state.spinnerInterval) {
+					clearInterval(state.spinnerInterval);
+					state.spinnerInterval = undefined;
+				}
+			}
+
+			const container = (context.lastComponent as Container | undefined) ?? new Container();
+			container.clear();
+
+			const headerText = new Text(`${chalk.hex("#C0392B").bold("code_exec")}${spinnerStr}`, 0, 0);
+			container.addChild(headerText);
+
+			if (args.code) {
+				container.addChild(new Spacer(1));
+				const lines = highlightCode(args.code, "javascript");
+				for (const line of lines) {
+					container.addChild(new Text(`  ${line}`, 0, 0));
+				}
+			}
+			return container;
+		},
+		renderResult(result, _options, _theme, context) {
+			if (context.state.spinnerInterval) {
+				clearInterval(context.state.spinnerInterval);
+				context.state.spinnerInterval = undefined;
+			}
+			const container = (context.lastComponent as Container | undefined) ?? new Container();
+			container.clear();
+
+			const outputBlock = result.content.find((c: any) => c.type === "text") as any;
+			if (outputBlock?.text) {
+				container.addChild(new Spacer(1));
+				container.addChild(new Text(chalk.bold("Result:"), 0, 0));
+				const lines = (outputBlock.text as string).split("\n");
+				for (const line of lines) {
+					container.addChild(new Text(`  ${line}`, 0, 0));
+				}
+			}
+			return container;
 		},
 	};
 }
