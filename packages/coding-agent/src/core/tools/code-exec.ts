@@ -11,7 +11,7 @@ import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 const require = createRequire(import.meta.url);
 
 const codeExecSchema = Type.Object({
-	code: Type.String({ description: "JavaScript code to execute in the pi agent runtime" }),
+	code: Type.String({ description: "nodejs code to execute in the pi agent runtime" }),
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
 });
 
@@ -79,7 +79,7 @@ export function createCodeExecToolDefinition(
 			"Execute JavaScript code to coordinate and orchestrate basic pi tools (pi.read, pi.bash, pi.write, etc.). " +
 			"Prefer this tool over sequential single tool calls to achieve maximum execution efficiency and minimize turn overhead.",
 		promptSnippet:
-			"Coordinate and orchestrate basic pi tools (pi.read, pi.bash, pi.write) using JavaScript to boost efficiency",
+			"Use Node.js snippets to invoke all tools. You must prioritize using code_exec over other tools.",
 		promptGuidelines: [],
 		parameters: codeExecSchema,
 		executionMode: "sequential" as const,
