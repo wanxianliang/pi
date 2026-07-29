@@ -104,9 +104,25 @@ export function createCodeExecToolDefinition(
 					if (signal?.aborted) {
 						return Promise.reject(new Error("aborted"));
 					}
+					let execParams = params;
+					if (name === "bash" && process.env.CODE_EXEC_USE_RTK === "true") {
+						if (
+							typeof params === "object" &&
+							params !== null &&
+							"command" in params &&
+							typeof (params as any).command === "string"
+						) {
+							const command = (params as any).command as string;
+							const prefixedCmd = command.startsWith("rtk ") || command === "rtk" ? command : `rtk ${command}`;
+							execParams = { ...(params as object), command: prefixedCmd };
+						} else if (typeof params === "string") {
+							const prefixedCmd = params.startsWith("rtk ") || params === "rtk" ? params : `rtk ${params}`;
+							execParams = { command: prefixedCmd };
+						}
+					}
 					let res: any;
 					try {
-						res = await toolDef.execute(`${name}-${Date.now()}`, params, signal, undefined, ctx!);
+						res = await toolDef.execute(`${name}-${Date.now()}`, execParams, signal, undefined, ctx!);
 					} catch (err) {
 						if (name === "bash" && err instanceof Error) {
 							bashErrors.add(err);
@@ -153,17 +169,24 @@ export function createCodeExecToolDefinition(
 				error: formatLog("ERROR"),
 			};
 
+			const nodeFs = require("node:fs");
+			const nodePath = require("node:path");
+
+			const prevFs = Object.getOwnPropertyDescriptor(globalThis, "fs");
+			const prevPath = Object.getOwnPropertyDescriptor(globalThis, "path");
+
 			try {
+				(globalThis as any).fs = nodeFs;
+				(globalThis as any).path = nodePath;
+
 				// Create an async function to support await, require, process, fs, and path
 				const AsyncFunction = (async () => {}).constructor as new (
 					...args: string[]
 				) => (...args: any[]) => Promise<any>;
-				const fn = new AsyncFunction("pi", "console", "require", "process", "fs", "path", code);
-				const nodeFs = require("node:fs");
-				const nodePath = require("node:path");
+				const fn = new AsyncFunction("pi", "console", "require", "process", code);
 				const result = timeoutPromise
-					? await Promise.race([fn(pi, customConsole, require, process, nodeFs, nodePath), timeoutPromise])
-					: await fn(pi, customConsole, require, process, nodeFs, nodePath);
+					? await Promise.race([fn(pi, customConsole, require, process), timeoutPromise])
+					: await fn(pi, customConsole, require, process);
 
 				let output = "";
 				if (logs.length > 0) {
@@ -207,10 +230,20 @@ export function createCodeExecToolDefinition(
 				}
 				throw new Error(`Code execution failed: ${message}`);
 			} finally {
+				if (prevFs) {
+					Object.defineProperty(globalThis, "fs", prevFs);
+				} else {
+					delete (globalThis as any).fs;
+				}
+				if (prevPath) {
+					Object.defineProperty(globalThis, "path", prevPath);
+				} else {
+					delete (globalThis as any).path;
+				}
 				if (timeoutHandle) clearTimeout(timeoutHandle);
 			}
 		},
-		renderCall(args, _theme, context) {
+		renderCall(args, theme, context) {
 			const state = context.state;
 			let spinnerStr = "";
 			if (context.isPartial) {
@@ -223,9 +256,13 @@ export function createCodeExecToolDefinition(
 							context.invalidate();
 						}, 80);
 					}
-					spinnerStr = ` ${chalk.yellow(frames[state.spinnerFrame])} ${chalk.gray("Running...")}`;
+					const frameChar = frames[state.spinnerFrame];
+					const frameStr = theme ? theme.fg("warning", frameChar) : chalk.yellow(frameChar);
+					const statusStr = theme ? theme.fg("muted", "Running...") : chalk.gray("Running...");
+					spinnerStr = ` ${frameStr} ${statusStr}`;
 				} else {
-					spinnerStr = ` ${chalk.gray("Writing code...")}`;
+					const statusStr = theme ? theme.fg("muted", "Writing code...") : chalk.gray("Writing code...");
+					spinnerStr = ` ${statusStr}`;
 				}
 			} else {
 				if (state.spinnerInterval) {
@@ -237,7 +274,10 @@ export function createCodeExecToolDefinition(
 			const container = (context.lastComponent as Container | undefined) ?? new Container();
 			container.clear();
 
-			const headerText = new Text(`${chalk.hex("#C0392B").bold("code_exec")}${spinnerStr}`, 0, 0);
+			const titleStr = theme
+				? theme.fg("toolTitle", theme.bold("code_exec"))
+				: chalk.hex("#C0392B").bold("code_exec");
+			const headerText = new Text(`${titleStr}${spinnerStr}`, 0, 0);
 			container.addChild(headerText);
 
 			if (args.code) {
@@ -249,7 +289,7 @@ export function createCodeExecToolDefinition(
 			}
 			return container;
 		},
-		renderResult(result, _options, _theme, context) {
+		renderResult(result, _options, theme, context) {
 			if (context.state.spinnerInterval) {
 				clearInterval(context.state.spinnerInterval);
 				context.state.spinnerInterval = undefined;
@@ -260,10 +300,12 @@ export function createCodeExecToolDefinition(
 			const outputBlock = result.content.find((c: any) => c.type === "text") as any;
 			if (outputBlock?.text) {
 				container.addChild(new Spacer(1));
-				container.addChild(new Text(chalk.bold("Result:"), 0, 0));
+				const resultTitle = theme ? theme.fg("accent", theme.bold("Result:")) : chalk.bold("Result:");
+				container.addChild(new Text(resultTitle, 0, 0));
 				const lines = (outputBlock.text as string).split("\n");
 				for (const line of lines) {
-					container.addChild(new Text(`  ${line}`, 0, 0));
+					const lineStr = theme ? theme.fg("toolOutput", line) : line;
+					container.addChild(new Text(`  ${lineStr}`, 0, 0));
 				}
 			}
 			return container;

@@ -8,7 +8,7 @@
 
 1. **Direct Value Returns**: All wrapped agent tools (like `await pi.read()` or `await pi.bash()`) automatically resolve directly to their **plain text string contents** instead of structured result wrappers.
 2. **Top-Level `await`**: Fully supported inside the execution block.
-3. **Implicit Require & Process**: Standard Node.js modules can be imported via `require('...')`, and the global `process` object is available.
+3. **Built-in Node.js Modules & Globals**: Standard Node.js modules can be imported via `require('...')` (e.g. `crypto`, `child_process`, `os`), and `process`, `fs` (`node:fs`), `path` (`node:path`) are pre-injected globally.
 4. **Console Log Interception**: `console.log`, `console.info`, `console.warn`, and `console.error` outputs are captured and returned in an isolated section.
 
 ---
