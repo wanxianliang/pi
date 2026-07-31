@@ -2567,13 +2567,14 @@ export class AgentSession {
 						const extraTools: Record<string, ToolDefinition<any, any, any>> = {};
 						if (this._toolDefinitions) {
 							for (const [name, entry] of this._toolDefinitions.entries()) {
-								if (name !== "code_exec") {
+								if (name !== "call_tools") {
 									extraTools[name] = entry.definition;
 								}
 							}
 						}
 						return extraTools;
 					},
+					emitEvent: (event) => this._handleAgentEvent(event),
 				});
 
 		this._baseToolDefinitions = new Map(

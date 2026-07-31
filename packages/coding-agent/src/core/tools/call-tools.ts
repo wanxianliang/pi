@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { createRequire } from "module";
@@ -10,15 +11,15 @@ import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 
 const require = createRequire(import.meta.url);
 
-const codeExecSchema = Type.Object({
+const callToolsSchema = Type.Object({
 	code: Type.String({ description: "nodejs code to execute in the pi agent runtime" }),
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
 });
 
-export type CodeExecInput = Static<typeof codeExecSchema>;
+export type CallToolsInput = Static<typeof callToolsSchema>;
 
 export function formatBashTruncatedOutput(text: string): string {
-	const envMaxLines = process.env.CODE_EXEC_BASH_MAX_LINES || process.env.PI_CODE_EXEC_BASH_MAX_LINES;
+	const envMaxLines = process.env.CALL_TOOLS_BASH_MAX_LINES || process.env.PI_CALL_TOOLS_BASH_MAX_LINES;
 	const threshold = envMaxLines ? parseInt(envMaxLines, 10) : 100;
 	const maxLines = Number.isFinite(threshold) && threshold > 0 ? threshold : 100;
 
@@ -32,7 +33,7 @@ export function formatBashTruncatedOutput(text: string): string {
 		mkdirSync(tmpDir, { recursive: true });
 	}
 
-	const fileName = `code_exec_bash_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.log`;
+	const fileName = `call_tools_bash_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.log`;
 	const filePath = join(tmpDir, fileName);
 	writeFileSync(filePath, text, "utf8");
 
@@ -58,7 +59,7 @@ export function formatBashTruncatedOutput(text: string): string {
 }
 
 /**
- * Create a `code_exec` tool definition that executes JavaScript code in the pi agent runtime.
+ * Create a `call_tools` tool definition that executes JavaScript code in the pi agent runtime.
  * The executed code has access to a `pi` object with methods that wrap all registered tool
  * `execute()` calls, enabling parallel execution via Promise.all and conditional logic via
  * standard JavaScript if/else.
@@ -68,20 +69,21 @@ export function formatBashTruncatedOutput(text: string): string {
  *
  * @param tools - Record of all registered tool definitions, keyed by tool name
  */
-export function createCodeExecToolDefinition(
+export function createCallToolsToolDefinition(
 	tools: Record<string, ToolDefinition<any, any, any>>,
 	getExtraTools?: () => Record<string, ToolDefinition<any, any, any>>,
-): ToolDefinition<typeof codeExecSchema> {
+	emitEvent?: (event: AgentEvent) => void,
+): ToolDefinition<typeof callToolsSchema> {
 	return {
-		name: "code_exec",
-		label: "code_exec",
+		name: "call_tools",
+		label: "call_tools",
 		description:
 			"Execute JavaScript code to coordinate and orchestrate basic pi tools (pi.read, pi.bash, pi.write, etc.). " +
 			"Prefer this tool over sequential single tool calls to achieve maximum execution efficiency and minimize turn overhead.",
 		promptSnippet:
-			"Use Node.js snippets to invoke all tools. You must prioritize using code_exec over other tools.",
+			"Use Node.js snippets to invoke tools (e.g. bash(...), read(...), write(...), or pi.bash(...)). You must prioritize using call_tools over other tools.",
 		promptGuidelines: [],
-		parameters: codeExecSchema,
+		parameters: callToolsSchema,
 		executionMode: "sequential" as const,
 		async execute(
 			_toolCallId: string,
@@ -105,7 +107,7 @@ export function createCodeExecToolDefinition(
 						return Promise.reject(new Error("aborted"));
 					}
 					let execParams = params;
-					if (name === "bash" && process.env.CODE_EXEC_USE_RTK === "true") {
+					if (name === "bash" && process.env.CALL_TOOLS_USE_RTK === "true") {
 						if (
 							typeof params === "object" &&
 							params !== null &&
@@ -120,15 +122,55 @@ export function createCodeExecToolDefinition(
 							execParams = { command: prefixedCmd };
 						}
 					}
+
+					const childToolCallId = `${_toolCallId}:${name}:${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+					const effectiveEmit = emitEvent || (ctx as any)?.emitEvent;
+
+					effectiveEmit?.({
+						type: "tool_execution_start",
+						toolCallId: childToolCallId,
+						toolName: name,
+						args: execParams,
+					});
+
+					const onUpdate = (partialResult: unknown) => {
+						effectiveEmit?.({
+							type: "tool_execution_update",
+							toolCallId: childToolCallId,
+							toolName: name,
+							args: execParams,
+							partialResult,
+						});
+					};
+
 					let res: any;
 					try {
-						res = await toolDef.execute(`${name}-${Date.now()}`, execParams, signal, undefined, ctx!);
+						res = await toolDef.execute(childToolCallId, execParams, signal, onUpdate, ctx!);
+
+						effectiveEmit?.({
+							type: "tool_execution_end",
+							toolCallId: childToolCallId,
+							toolName: name,
+							result: res,
+							isError: false,
+						});
 					} catch (err) {
 						if (name === "bash" && err instanceof Error) {
 							bashErrors.add(err);
 						}
+						const errorMsg = err instanceof Error ? err.message : String(err);
+						const errorResult = { content: [{ type: "text" as const, text: errorMsg }], details: {} };
+
+						effectiveEmit?.({
+							type: "tool_execution_end",
+							toolCallId: childToolCallId,
+							toolName: name,
+							result: errorResult,
+							isError: true,
+						});
 						throw err;
 					}
+
 					let text: string | undefined;
 					if (res && Array.isArray(res.content)) {
 						text = res.content
@@ -179,14 +221,21 @@ export function createCodeExecToolDefinition(
 				(globalThis as any).fs = nodeFs;
 				(globalThis as any).path = nodePath;
 
-				// Create an async function to support await, require, process, fs, and path
+				// Create an async function with injected tool functions (bash, read, write, etc.) and pi, console, require, process
+				const toolEntries = Object.entries(pi).filter(([name]) => /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name));
+				const toolNames = toolEntries.map(([name]) => name);
+				const toolValues = toolEntries.map(([, toolFn]) => toolFn);
+
+				const paramNames = ["pi", "console", "require", "process", ...toolNames];
+				const paramValues = [pi, customConsole, require, process, ...toolValues];
+
 				const AsyncFunction = (async () => {}).constructor as new (
 					...args: string[]
 				) => (...args: any[]) => Promise<any>;
-				const fn = new AsyncFunction("pi", "console", "require", "process", code);
+				const fn = new AsyncFunction(...paramNames, code);
 				const result = timeoutPromise
-					? await Promise.race([fn(pi, customConsole, require, process), timeoutPromise])
-					: await fn(pi, customConsole, require, process);
+					? await Promise.race([fn(...paramValues), timeoutPromise])
+					: await fn(...paramValues);
 
 				let output = "";
 				if (logs.length > 0) {
@@ -275,8 +324,8 @@ export function createCodeExecToolDefinition(
 			container.clear();
 
 			const titleStr = theme
-				? theme.fg("toolTitle", theme.bold("code_exec"))
-				: chalk.hex("#C0392B").bold("code_exec");
+				? theme.fg("toolTitle", theme.bold("call_tools"))
+				: chalk.hex("#C0392B").bold("call_tools");
 			const headerText = new Text(`${titleStr}${spinnerStr}`, 0, 0);
 			container.addChild(headerText);
 

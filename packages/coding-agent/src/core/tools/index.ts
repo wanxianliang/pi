@@ -10,9 +10,9 @@ export {
 	createLocalBashOperations,
 } from "./bash.ts";
 export {
-	type CodeExecInput,
-	createCodeExecToolDefinition,
-} from "./code-exec.ts";
+	type CallToolsInput,
+	createCallToolsToolDefinition,
+} from "./call-tools.ts";
 export {
 	createEditTool,
 	createEditToolDefinition,
@@ -75,7 +75,7 @@ export {
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
-import { createCodeExecToolDefinition } from "./code-exec.ts";
+import { createCallToolsToolDefinition } from "./call-tools.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
@@ -85,7 +85,7 @@ import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } fro
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "code_exec";
+export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "call_tools";
 export const allToolNames: Set<ToolName> = new Set([
 	"read",
 	"bash",
@@ -94,7 +94,7 @@ export const allToolNames: Set<ToolName> = new Set([
 	"grep",
 	"find",
 	"ls",
-	"code_exec",
+	"call_tools",
 ]);
 
 export interface ToolsOptions {
@@ -106,6 +106,7 @@ export interface ToolsOptions {
 	find?: FindToolOptions;
 	ls?: LsToolOptions;
 	getExtraTools?: () => Record<string, ToolDefinition<any, any, any>>;
+	emitEvent?: (event: any) => void;
 }
 
 export function createToolDefinition(toolName: ToolName, cwd: string, options?: ToolsOptions): ToolDef {
@@ -180,7 +181,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 	};
 	return {
 		...tools,
-		code_exec: createCodeExecToolDefinition(tools, options?.getExtraTools),
+		call_tools: createCallToolsToolDefinition(tools, options?.getExtraTools, options?.emitEvent),
 	} as Record<ToolName, ToolDef>;
 }
 
@@ -202,7 +203,7 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 	];
 }
 
-export function createAllTools(cwd: string, options?: ToolsOptions): Record<Exclude<ToolName, "code_exec">, Tool> {
+export function createAllTools(cwd: string, options?: ToolsOptions): Record<Exclude<ToolName, "call_tools">, Tool> {
 	return {
 		read: createReadTool(cwd, options?.read),
 		bash: createBashTool(cwd, options?.bash),
