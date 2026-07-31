@@ -91,7 +91,6 @@ export interface ToolsOptions {
 	grep?: GrepToolOptions;
 	find?: FindToolOptions;
 	ls?: LsToolOptions;
-	getExtraTools?: () => Record<string, ToolDefinition<any, any, any>>;
 	emitEvent?: (event: any) => void;
 }
 
