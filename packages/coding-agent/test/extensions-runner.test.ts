@@ -591,6 +591,51 @@ describe("ExtensionRunner", () => {
 			expect(errors[0].error).toContain("Handler error!");
 			expect(errors[0].event).toBe("context");
 		});
+
+		it("can filter tools in context event handler", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("context", (event, ctx) => {
+						return {
+							tools: (event.tools || []).filter((t) => t.name !== "forbidden_tool")
+						};
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "tool-filter.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			const inputTools = [
+				{ name: "allowed_tool", description: "ok", execute: async () => ({}) },
+				{ name: "forbidden_tool", description: "bad", execute: async () => ({}) },
+			] as any;
+
+			const transformed = await runner.emitTools(inputTools);
+
+			expect(transformed.map((t: any) => t.name)).toEqual(["allowed_tool"]);
+		});
+
+		it("can modify systemPrompt in context event handler", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.on("context", (event, ctx) => {
+						return {
+							systemPrompt: (event.systemPrompt || "") + "\\n[Appended by Extension]"
+						};
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "prompt-filter.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+
+			const transformed = await runner.emitContextEnhancements({ systemPrompt: "Original Prompt" });
+
+			expect(transformed.systemPrompt).toBe("Original Prompt\n[Appended by Extension]");
+		});
 	});
 
 	describe("message and entry renderers", () => {

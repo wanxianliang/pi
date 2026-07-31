@@ -10,6 +10,7 @@ export {
 	loadExtensionFromFactory,
 	loadExtensions,
 } from "./loader.ts";
+export { type EnhancedContextResult, filterContextWithExtensions } from "./pi-extension-enhance.ts";
 export type {
 	ExtensionErrorListener,
 	ForkHandler,

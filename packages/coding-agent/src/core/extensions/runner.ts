@@ -2,7 +2,7 @@
  * Extension runner - executes extensions and manages their lifecycle.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, Model, Provider, ProviderHeaders } from "@earendil-works/pi-ai";
 import type { KeyId } from "@earendil-works/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
@@ -12,6 +12,7 @@ import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import { filterContextWithExtensions } from "./pi-extension-enhance.ts";
 import type {
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -285,6 +286,8 @@ export class ExtensionRunner {
 	private compactFn: (options?: CompactOptions) => void = () => {};
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
+	private getAllToolDefinitionsFn: () => Record<string, any> = () => ({});
+	private emitAgentEventFn: (event: AgentEvent) => void = () => {};
 	private newSessionHandler: NewSessionHandler = async () => ({ cancelled: false });
 	private forkHandler: ForkHandler = async () => ({ cancelled: false });
 	private navigateTreeHandler: NavigateTreeHandler = async () => ({ cancelled: false });
@@ -348,6 +351,8 @@ export class ExtensionRunner {
 		this.compactFn = contextActions.compact;
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
 		this.getSystemPromptOptionsFn = contextActions.getSystemPromptOptions ?? (() => ({ cwd: this.cwd }));
+		this.getAllToolDefinitionsFn = contextActions.getAllToolDefinitions ?? (() => ({}));
+		this.emitAgentEventFn = contextActions.emitAgentEvent ?? (() => {});
 
 		// Flush provider registrations queued during extension loading
 		for (const { name, config, extensionPath } of this.runtime.pendingProviderRegistrations) {
@@ -742,6 +747,19 @@ export class ExtensionRunner {
 				runner.assertActive();
 				return runner.getSystemPromptFn();
 			},
+			getAllToolDefinitions: () => {
+				runner.assertActive();
+				const baseTools = runner.getAllToolDefinitionsFn();
+				const extTools: Record<string, any> = {};
+				for (const regTool of runner.getAllRegisteredTools()) {
+					extTools[regTool.definition.name] = regTool.definition;
+				}
+				return { ...baseTools, ...extTools };
+			},
+			emitAgentEvent: (event: AgentEvent) => {
+				runner.assertActive();
+				runner.emitAgentEventFn(event);
+			},
 		};
 	}
 
@@ -1006,6 +1024,19 @@ export class ExtensionRunner {
 		}
 
 		return currentMessages;
+	}
+
+	async emitContextEnhancements<T = any>(options: {
+		systemPrompt?: string;
+		tools?: T[];
+	}): Promise<{ systemPrompt?: string; tools?: T[] }> {
+		const ctx = this.createContext();
+		return filterContextWithExtensions(this.extensions as any, ctx, options, (err) => this.emitError(err));
+	}
+
+	async emitTools<T = any>(tools: T[]): Promise<T[]> {
+		const result = await this.emitContextEnhancements({ tools });
+		return result.tools ?? tools;
 	}
 
 	async emitBeforeProviderRequest(payload: unknown): Promise<unknown> {

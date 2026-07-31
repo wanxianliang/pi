@@ -242,7 +242,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 	}
 
-	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write", "call_tools"];
+	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write"];
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;
@@ -309,7 +309,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			const websocketConnectTimeoutMs =
 				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
 			const headerRunner = extensionRunnerRef.current;
-			return modelRuntime.streamSimple(model, context, {
+			let llmContext = context;
+			if (headerRunner) {
+				const enhanced = await headerRunner.emitContextEnhancements({
+					systemPrompt: context.systemPrompt,
+					tools: context.tools,
+				});
+				llmContext = {
+					...context,
+					...(enhanced.systemPrompt !== undefined ? { systemPrompt: enhanced.systemPrompt } : {}),
+					...(enhanced.tools !== undefined ? { tools: enhanced.tools } : {}),
+				};
+			}
+			return modelRuntime.streamSimple(model, llmContext, {
 				...options,
 				timeoutMs,
 				websocketConnectTimeoutMs,

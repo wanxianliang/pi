@@ -9,6 +9,7 @@
  */
 
 import type {
+	AgentEvent,
 	AgentMessage,
 	AgentToolResult,
 	AgentToolUpdateCallback,
@@ -344,6 +345,10 @@ export interface ExtensionContext {
 	compact(options?: CompactOptions): void;
 	/** Get the current effective system prompt. */
 	getSystemPrompt(): string;
+	/** Get all executable ToolDefinitions registered in the session */
+	getAllToolDefinitions?(): Record<string, ToolDefinition>;
+	/** Emit an agent event (e.g. tool execution start/update/end) */
+	emitAgentEvent?(event: AgentEvent): void;
 }
 
 /**
@@ -666,10 +671,12 @@ export type SessionEvent =
 // Agent Events
 // ============================================================================
 
-/** Fired before each LLM call. Can modify messages. */
+/** Fired before each LLM call. Can modify messages, tools, and system prompt. */
 export interface ContextEvent {
 	type: "context";
 	messages: AgentMessage[];
+	tools?: any[];
+	systemPrompt?: string;
 }
 
 /** Fired before a provider request is sent. Can replace the payload. */
@@ -1064,6 +1071,8 @@ export type ExtensionEvent =
 
 export interface ContextEventResult {
 	messages?: AgentMessage[];
+	tools?: any[];
+	systemPrompt?: string;
 }
 
 export type BeforeProviderRequestEventResult = unknown;
@@ -1632,6 +1641,8 @@ export interface ExtensionContextActions {
 	compact: (options?: CompactOptions) => void;
 	getSystemPrompt: () => string;
 	getSystemPromptOptions?: () => BuildSystemPromptOptions;
+	getAllToolDefinitions?: () => Record<string, ToolDefinition>;
+	emitAgentEvent?: (event: AgentEvent) => void;
 }
 
 /**

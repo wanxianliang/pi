@@ -2434,6 +2434,23 @@ export class AgentSession {
 				},
 				getSystemPrompt: () => this.systemPrompt,
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
+				getAllToolDefinitions: () => {
+					const map: Record<string, ToolDefinition> = {};
+					if (this._baseToolDefinitions) {
+						for (const [name, tool] of this._baseToolDefinitions.entries()) {
+							map[name] = tool;
+						}
+					}
+					if (this._toolDefinitions) {
+						for (const [name, entry] of this._toolDefinitions.entries()) {
+							map[name] = entry.definition;
+						}
+					}
+					return map;
+				},
+				emitAgentEvent: (event) => {
+					this._handleAgentEvent(event);
+				},
 			},
 			{
 				registerProvider: (name, config) => {
@@ -2563,17 +2580,6 @@ export class AgentSession {
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
 					bash: { commandPrefix: shellCommandPrefix, shellPath },
-					getExtraTools: () => {
-						const extraTools: Record<string, ToolDefinition<any, any, any>> = {};
-						if (this._toolDefinitions) {
-							for (const [name, entry] of this._toolDefinitions.entries()) {
-								if (name !== "call_tools") {
-									extraTools[name] = entry.definition;
-								}
-							}
-						}
-						return extraTools;
-					},
 					emitEvent: (event) => this._handleAgentEvent(event),
 				});
 
