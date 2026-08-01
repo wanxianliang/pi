@@ -1008,6 +1008,40 @@ describe("ExtensionRunner", () => {
 		});
 	});
 
+	describe("executeTool", () => {
+		it("triggers tool_call hooks when executed via ctx.executeTool", async () => {
+			const _interceptedToolName = "";
+			const _parentId = "";
+			const extCode = `
+				export default function(pi) {
+					pi.on("tool_call", async (event) => {
+						(globalThis as any).__intercepted = event;
+					});
+					pi.registerTool({
+						name: "sub_tool",
+						label: "sub_tool",
+						description: "sub tool",
+						parameters: {},
+						execute: async () => ({ content: [{ type: "text", text: "ok" }] })
+					});
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "exec_tool.ts"), extCode);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const ctx = runner.createContext();
+
+			await ctx.executeTool!("sub_tool", { arg: 1 }, { parentToolCallId: "call_1", callerTool: "call_tools" });
+
+			const event = (globalThis as any).__intercepted;
+			expect(event).toBeDefined();
+			expect(event.toolName).toBe("sub_tool");
+			expect(event.parentToolCallId).toBe("call_1");
+			expect(event.callerTool).toBe("call_tools");
+		});
+	});
+
 	describe("before_provider_headers", () => {
 		it("lets a handler mutate headers in place and preserves existing headers", async () => {
 			const extCode = `

@@ -349,6 +349,17 @@ export interface ExtensionContext {
 	getAllToolDefinitions?(): Record<string, ToolDefinition>;
 	/** Emit an agent event (e.g. tool execution start/update/end) */
 	emitAgentEvent?(event: AgentEvent): void;
+	/** Execute a tool through extension lifecycle hooks (emitToolCall & emitToolResult) */
+	executeTool?(
+		toolName: string,
+		input: unknown,
+		options?: {
+			parentToolCallId?: string;
+			callerTool?: string;
+			signal?: AbortSignal;
+			onUpdate?: (partialResult: unknown) => void;
+		},
+	): Promise<any>;
 }
 
 /**
@@ -860,6 +871,10 @@ export type InputEventResult =
 interface ToolCallEventBase {
 	type: "tool_call";
 	toolCallId: string;
+	/** Optional parent toolCallId when invoked via an orchestration tool like call_tools */
+	parentToolCallId?: string;
+	/** Optional caller tool name (e.g. "call_tools") */
+	callerTool?: string;
 }
 
 export interface BashToolCallEvent extends ToolCallEventBase {

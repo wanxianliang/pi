@@ -12,7 +12,7 @@ import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
-import { filterContextWithExtensions } from "./pi-extension-enhance.ts";
+import { executeToolWithExtensions, filterContextWithExtensions } from "./pi-extension-enhance.ts";
 import type {
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -764,6 +764,10 @@ export class ExtensionRunner {
 			emitAgentEvent: (event: AgentEvent) => {
 				runner.assertActive();
 				runner.emitAgentEventFn(event);
+			},
+			executeTool: (toolName, input, options) => {
+				runner.assertActive();
+				return executeToolWithExtensions(runner, runner.createContext(), toolName, input, options);
 			},
 		};
 	}
