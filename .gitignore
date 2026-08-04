@@ -43,3 +43,5 @@ plans/
 .pi/hf-sessions-backup/
 collect.sh
 plan/archive/
+.codegraph/
+package-lock.json

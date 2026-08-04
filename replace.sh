@@ -71,3 +71,14 @@ echo -e "  Location: ${GREEN}$GLOBAL_SCOPE${NC}"
 echo -e "  Backup: ${GREEN}$BACKUP_DIR${NC}\n"
 
 echo -e "${GREEN}✓ Replace completed successfully!${NC}"
+
+# bun link 进入 /Users/sean/pro/pi/packages 遍历目录 bun link
+source_packages_dir="/Users/sean/pro/pi/packages"
+for dir in "$source_packages_dir"/*; do
+    if [ -d "$dir" ]; then
+        pkg_name=$(basename "$dir")
+        cd "$dir"
+        bun link
+    fi
+done
+
