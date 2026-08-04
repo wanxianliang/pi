@@ -4,6 +4,7 @@ import {
 	type Component,
 	Container,
 	getCapabilities,
+	type ScrollViewScrollbar,
 	type SelectItem,
 	SelectList,
 	type SelectListLayoutOptions,
@@ -80,6 +81,7 @@ export interface SettingsConfig {
 	clearOnShrink: boolean;
 	showTerminalProgress: boolean;
 	uiMode: UiMode;
+	fullscreenScrollbar: ScrollViewScrollbar;
 	warnings: WarningSettings;
 }
 
@@ -112,6 +114,7 @@ export interface SettingsCallbacks {
 	onClearOnShrinkChange: (enabled: boolean) => void;
 	onShowTerminalProgressChange: (enabled: boolean) => void;
 	onUiModeChange: (mode: UiMode) => void;
+	onFullscreenScrollbarChange: (mode: ScrollViewScrollbar) => void;
 	onWarningsChange: (warnings: WarningSettings) => void;
 	onCancel: () => void;
 }
@@ -615,9 +618,16 @@ export class SettingsSelectorComponent extends Container {
 			{
 				id: "ui-mode",
 				label: "UI mode",
-				description: "Interface layout used after restart; fullscreen mode is experimental",
+				description: "Interface layout; fullscreen mode is experimental",
 				currentValue: config.uiMode,
 				values: ["regular", "fullscreen"],
+			},
+			{
+				id: "fullscreen-scrollbar",
+				label: "Fullscreen scrollbar",
+				description: "Scrollbar behavior in fullscreen mode; has no effect in regular mode",
+				currentValue: config.fullscreenScrollbar,
+				values: ["auto", "always", "hidden"],
 			},
 			{
 				id: "theme",
@@ -830,6 +840,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "ui-mode":
 						callbacks.onUiModeChange(newValue as UiMode);
+						break;
+					case "fullscreen-scrollbar":
+						callbacks.onFullscreenScrollbarChange(newValue as ScrollViewScrollbar);
 						break;
 					case "theme":
 						callbacks.onThemeChange(newValue);
