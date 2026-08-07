@@ -13,7 +13,7 @@ SCOPE="$HOME/.bun/install/global/node_modules/@earendil-works"
 PACKAGES=(ai protocol tui agent client coding-agent)
 
 echo -e "${YELLOW}[1/2] Building project...${NC}"
-(cd "$ROOT" && npm run build:offline)
+(cd "$ROOT" && npm run build)
 
 echo -e "${YELLOW}[2/2] Installing built packages into bun global scope...${NC}"
 mkdir -p "$SCOPE"
