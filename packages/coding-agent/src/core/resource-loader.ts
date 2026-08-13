@@ -15,6 +15,7 @@ import {
 	loadExtensionFromFactory,
 	loadExtensionsCached,
 } from "./extensions/loader.ts";
+import { filterEnabledExtensions, filterEnabledSkills } from "./extensions/pi-extension-enhance.ts";
 import type { Extension, ExtensionRuntime, InlineExtension, LoadExtensionsResult } from "./extensions/types.ts";
 import { findGitPaths } from "./footer-data-provider.ts";
 import { DefaultPackageManager, type PathMetadata, type ResolvedResource } from "./package-manager.ts";
@@ -301,11 +302,12 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	getExtensions(): LoadExtensionsResult {
-		return this.extensionsResult;
+		return filterEnabledExtensions(this.extensionsResult);
 	}
 
 	getSkills(): { skills: Skill[]; diagnostics: ResourceDiagnostic[] } {
-		return { skills: this.skills, diagnostics: this.skillDiagnostics };
+		const filtered = filterEnabledSkills(this.skills);
+		return { skills: filtered, diagnostics: this.skillDiagnostics };
 	}
 
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] } {
@@ -467,7 +469,6 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const skillPaths = this.noSkills
 			? this.mergePaths(cliEnabledSkills, this.additionalSkillPaths)
 			: this.mergePaths([...cliEnabledSkills, ...enabledSkills], this.additionalSkillPaths);
-
 		this.lastSkillPaths = skillPaths;
 		this.updateSkillsFromPaths(skillPaths, metadataByPath);
 		for (const p of this.additionalSkillPaths) {

@@ -93,6 +93,12 @@ import {
 	type TurnStartEvent,
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
+import {
+	buildAllToolsCatalog,
+	filterAllToolDefinitions,
+	isToolEnabledInConfig,
+} from "./extensions/pi-extension-enhance.ts";
+
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
@@ -906,13 +912,7 @@ export class AgentSession {
 	 * Get all configured tools with name, description, parameter schema, prompt guidelines, and source metadata.
 	 */
 	getAllTools(): ToolInfo[] {
-		return Array.from(this._toolDefinitions.values()).map(({ definition, sourceInfo }) => ({
-			name: definition.name,
-			description: definition.description,
-			parameters: definition.parameters,
-			promptGuidelines: definition.promptGuidelines,
-			sourceInfo,
-		}));
+		return buildAllToolsCatalog(this._baseToolDefinitions, this._extensionRunner, this._customTools);
 	}
 
 	getToolDefinition(name: string): ToolDefinition | undefined {
@@ -2442,20 +2442,7 @@ export class AgentSession {
 				},
 				getSystemPrompt: () => this.systemPrompt,
 				getSystemPromptOptions: () => this._baseSystemPromptOptions,
-				getAllToolDefinitions: () => {
-					const map: Record<string, ToolDefinition> = {};
-					if (this._baseToolDefinitions) {
-						for (const [name, tool] of this._baseToolDefinitions.entries()) {
-							map[name] = tool;
-						}
-					}
-					if (this._toolDefinitions) {
-						for (const [name, entry] of this._toolDefinitions.entries()) {
-							map[name] = entry.definition;
-						}
-					}
-					return map;
-				},
+				getAllToolDefinitions: () => filterAllToolDefinitions(this._baseToolDefinitions, this._toolDefinitions),
 				emitAgentEvent: (event) => {
 					this._handleAgentEvent(event);
 				},
@@ -2483,7 +2470,9 @@ export class AgentSession {
 		const allowedToolNames = this._allowedToolNames;
 		const excludedToolNames = this._excludedToolNames;
 		const isAllowedTool = (name: string): boolean =>
-			(!allowedToolNames || allowedToolNames.has(name)) && !excludedToolNames?.has(name);
+			(!allowedToolNames || allowedToolNames.has(name)) &&
+			!excludedToolNames?.has(name) &&
+			isToolEnabledInConfig(name);
 
 		const registeredTools = this._extensionRunner.getAllRegisteredTools();
 		const allCustomTools = [

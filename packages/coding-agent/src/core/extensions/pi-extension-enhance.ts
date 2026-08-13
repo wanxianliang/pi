@@ -2,7 +2,214 @@
  * Extension enhancement module for tools & system prompt filtering and context interceptors.
  */
 
+import * as fs from "node:fs";
+import { createSyntheticSourceInfo } from "../source-info.ts";
 import type { ContextEvent, ContextEventResult, ExtensionContext } from "./types.ts";
+
+const ENHANCE_CONFIG_PATH = "/Users/sean/Documents/node-base/pi-agent-suite/config/pi-enhance.json";
+
+export interface PiEnhanceConfig {
+	skills?: { enabled?: boolean; disabledNames?: string[] };
+	extensions?: { enabled?: boolean; disabledNames?: string[] };
+	tools?: { enabled?: boolean; builtinEnabled?: boolean; pluginEnabled?: boolean; disabledNames?: string[] };
+	webPort?: number;
+}
+
+export function loadEnhanceConfig(): PiEnhanceConfig {
+	try {
+		if (fs.existsSync(ENHANCE_CONFIG_PATH)) {
+			return JSON.parse(fs.readFileSync(ENHANCE_CONFIG_PATH, "utf-8"));
+		}
+	} catch {
+		// Ignore
+	}
+	return {
+		skills: { enabled: true, disabledNames: [] },
+		extensions: { enabled: true, disabledNames: [] },
+		tools: { enabled: true, builtinEnabled: true, pluginEnabled: true, disabledNames: [] },
+		webPort: 10240,
+	};
+}
+
+export function isToolEnabledInConfig(name: string, isBuiltin?: boolean): boolean {
+	const cfg = loadEnhanceConfig();
+	if (cfg.tools?.enabled === false) return false;
+	const builtin = isBuiltin ?? ["read", "bash", "edit", "write"].includes(name);
+	if (builtin && cfg.tools?.builtinEnabled === false) return false;
+	if (!builtin && cfg.tools?.pluginEnabled === false) return false;
+	if (cfg.tools?.disabledNames?.includes(name)) return false;
+	return true;
+}
+
+export function buildAllToolsCatalog(
+	baseToolDefinitions?: Map<string, any>,
+	extensionRunner?: any,
+	customTools?: any[],
+): any[] {
+	const map = new Map<string, any>();
+	if (baseToolDefinitions) {
+		for (const [name, definition] of baseToolDefinitions.entries()) {
+			map.set(name, {
+				name: definition.name,
+				description: definition.description,
+				parameters: definition.parameters,
+				promptGuidelines: definition.promptGuidelines,
+				sourceInfo: createSyntheticSourceInfo(`<builtin:${name}>`, { source: "builtin" }),
+			});
+		}
+	}
+	if (extensionRunner) {
+		for (const tool of extensionRunner.getAllRegisteredTools()) {
+			map.set(tool.definition.name, {
+				name: tool.definition.name,
+				description: tool.definition.description,
+				parameters: tool.definition.parameters,
+				promptGuidelines: tool.definition.promptGuidelines,
+				sourceInfo: tool.sourceInfo,
+			});
+		}
+	}
+	if (customTools) {
+		for (const tool of customTools) {
+			map.set(tool.name, {
+				name: tool.name,
+				description: tool.description,
+				parameters: tool.parameters,
+				promptGuidelines: tool.promptGuidelines,
+				sourceInfo: createSyntheticSourceInfo(`<sdk:${tool.name}>`, { source: "sdk" }),
+			});
+		}
+	}
+	return Array.from(map.values());
+}
+
+export function filterAllToolDefinitions(
+	baseToolDefinitions?: Map<string, any>,
+	toolDefinitions?: Map<string, any>,
+): Record<string, any> {
+	const map: Record<string, any> = {};
+	if (baseToolDefinitions) {
+		for (const [name, tool] of baseToolDefinitions.entries()) {
+			if (isToolEnabledInConfig(name, true)) {
+				map[name] = tool;
+			}
+		}
+	}
+	if (toolDefinitions) {
+		for (const [name, entry] of toolDefinitions.entries()) {
+			if (isToolEnabledInConfig(name, false)) {
+				map[name] = entry.definition;
+			}
+		}
+	}
+	return map;
+}
+
+export function filterEnabledExtensionPaths(extensionPaths: string[]): string[] {
+	const cfg = loadEnhanceConfig();
+	if (cfg.extensions?.enabled === false) {
+		return extensionPaths.filter((p) => p === "pi-manager" || p.includes("pi-manager"));
+	}
+	const disabled = cfg.extensions?.disabledNames;
+	if (disabled && disabled.length > 0) {
+		return extensionPaths.filter((p) => {
+			if (p === "pi-manager" || p.includes("pi-manager")) return true;
+
+			const segments = p.split(/[\\/]/);
+			const fileName = segments[segments.length - 1] || "";
+			const fileStem = fileName.replace(/\.(ts|js|json)$/, "");
+
+			for (const dis of disabled) {
+				if (!dis) continue;
+				if (dis === p || dis === fileName || dis === fileStem || segments.includes(dis)) {
+					return false;
+				}
+			}
+			return true;
+		});
+	}
+	return extensionPaths;
+}
+
+export function filterEnabledSkillPaths(skillPaths: string[]): string[] {
+	const cfg = loadEnhanceConfig();
+	if (cfg.skills?.enabled === false) {
+		return [];
+	}
+	const disabled = cfg.skills?.disabledNames;
+	if (disabled && disabled.length > 0) {
+		return skillPaths.filter((p) => {
+			const segments = p.split(/[\\/]/);
+			const fileName = segments[segments.length - 1] || "";
+			const fileStem = fileName.replace(/\.(md|json)$/, "");
+
+			for (const dis of disabled) {
+				if (!dis) continue;
+				if (dis === p || dis === fileName || dis === fileStem || segments.includes(dis)) {
+					return false;
+				}
+			}
+			return true;
+		});
+	}
+	return skillPaths;
+}
+
+export function filterEnabledSkills<T extends { name: string }>(skills: T[]): T[] {
+	const cfg = loadEnhanceConfig();
+	if (cfg.skills?.enabled === false) {
+		return [];
+	}
+	const disabled = cfg.skills?.disabledNames;
+	if (disabled && disabled.length > 0) {
+		return skills.filter((s) => !disabled.includes(s.name));
+	}
+	return skills;
+}
+
+export function filterEnabledExtensions<T extends { extensions: any[] }>(baseResult: T): T {
+	const cfg = loadEnhanceConfig();
+	let exts = baseResult.extensions ? baseResult.extensions.slice() : [];
+
+	if (cfg.extensions?.enabled === false) {
+		exts = exts.filter(
+			(ext: any) => ext.name === "pi-manager" || (typeof ext.path === "string" && ext.path.includes("pi-manager")),
+		);
+	} else if (cfg.extensions?.disabledNames && cfg.extensions.disabledNames.length > 0) {
+		const disabled = cfg.extensions.disabledNames;
+		exts = exts.filter((ext: any) => {
+			const extName = ext.name || "";
+			const extPath = typeof ext.path === "string" ? ext.path : "";
+			if (extName === "pi-manager" || extPath.includes("pi-manager")) return true;
+
+			const segments = extPath.split(/[\\/]/);
+			const fileName = segments[segments.length - 1] || "";
+			const fileStem = fileName.replace(/\.(ts|js|json)$/, "");
+
+			for (const dis of disabled) {
+				if (!dis) continue;
+				if (dis === extName || dis === extPath || dis === fileName || dis === fileStem || segments.includes(dis)) {
+					return false;
+				}
+			}
+			return true;
+		});
+	}
+
+	// 确保 pi-manager 管理插件始终置顶在 Index 0
+	const managerIndex = exts.findIndex(
+		(ext: any) => ext.name === "pi-manager" || (typeof ext.path === "string" && ext.path.includes("pi-manager")),
+	);
+	if (managerIndex > 0) {
+		const [mgr] = exts.splice(managerIndex, 1);
+		exts.unshift(mgr);
+	}
+
+	return {
+		...baseResult,
+		extensions: exts,
+	};
+}
 
 export interface ExtensionContextHandlerItem {
 	handlers: Map<
@@ -96,6 +303,9 @@ export async function executeToolWithExtensions(
 	input: unknown,
 	options?: ExecuteToolOptions,
 ): Promise<any> {
+	if (!isToolEnabledInConfig(toolName)) {
+		throw new Error(`Tool is disabled: ${toolName}`);
+	}
 	const allTools = ctx.getAllToolDefinitions ? ctx.getAllToolDefinitions() : {};
 	const toolDef = allTools[toolName];
 	if (!toolDef) {
