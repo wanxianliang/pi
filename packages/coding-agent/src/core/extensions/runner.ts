@@ -12,7 +12,8 @@ import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
-import { executeToolWithExtensions, filterContextWithExtensions } from "./pi-extension-enhance.ts";
+import { executeToolWithExtensions, filterContextWithExtensions, mergeExtensionTools } from "./pi-extension-enhance.ts";
+
 import type {
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -754,12 +755,7 @@ export class ExtensionRunner {
 			},
 			getAllToolDefinitions: () => {
 				runner.assertActive();
-				const baseTools = runner.getAllToolDefinitionsFn();
-				const extTools: Record<string, any> = {};
-				for (const regTool of runner.getAllRegisteredTools()) {
-					extTools[regTool.definition.name] = regTool.definition;
-				}
-				return { ...baseTools, ...extTools };
+				return mergeExtensionTools(runner.getAllToolDefinitionsFn(), runner.getAllRegisteredTools());
 			},
 			emitAgentEvent: (event: AgentEvent) => {
 				runner.assertActive();

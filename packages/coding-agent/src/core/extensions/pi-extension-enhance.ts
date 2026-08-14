@@ -406,3 +406,14 @@ export async function executeToolWithExtensions(
 
 	return res;
 }
+
+export function mergeExtensionTools(baseTools: Record<string, any>, registeredTools: any[]): Record<string, any> {
+	const extTools: Record<string, any> = {};
+	for (const regTool of registeredTools) {
+		const name = regTool.definition.name;
+		if (isToolEnabledInConfig(name, false)) {
+			extTools[name] = regTool.definition;
+		}
+	}
+	return { ...baseTools, ...extTools };
+}
