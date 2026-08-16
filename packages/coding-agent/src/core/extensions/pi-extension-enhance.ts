@@ -162,7 +162,20 @@ export function filterEnabledSkills<T extends { name: string }>(skills: T[]): T[
 	}
 	const disabled = cfg.skills?.disabledNames;
 	if (disabled && disabled.length > 0) {
-		return skills.filter((s) => !disabled.includes(s.name));
+		return skills.filter((s) => {
+			const name = s.name || "";
+			const filePath = (s as any).filePath || "";
+			const fileName = filePath ? filePath.split(/[\\/]/).pop() || "" : "";
+			const fileStem = fileName.replace(/\.(md|json)$/, "");
+
+			for (const dis of disabled) {
+				if (!dis) continue;
+				if (dis === name || dis === filePath || dis === fileName || dis === fileStem) {
+					return false;
+				}
+			}
+			return true;
+		});
 	}
 	return skills;
 }
