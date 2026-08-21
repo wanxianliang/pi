@@ -2,6 +2,8 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
 	FastTextMeasureEngine,
+	formatToolArgs,
+	formatToolExecutionLines,
 	getMaxVisibleMessages,
 	highlightCode,
 	initPiEnhanceTui,
@@ -115,5 +117,30 @@ describe("pi-enhance-tui core suite", () => {
 		instance.restore();
 		delete process.env.PI_MAX_VISIBLE_MESSAGES;
 		assert.strictEqual(getMaxVisibleMessages(), 25);
+	});
+
+	it("renderCardBox sanitizes multiline content so no line contains embedded newlines", () => {
+		const multilineCmd = "npm run build\nnpm test";
+		const formattedArgs = formatToolArgs("bash", { command: multilineCmd });
+		assert.ok(formattedArgs.every((l) => !l.includes("\n") && !l.includes("\r")));
+		assert.strictEqual(formattedArgs.length, 2);
+
+		const multilineErr = {
+			content: [{ type: "text", text: "Error line 1\nError line 2\nError line 3" }],
+			isError: true,
+		};
+		const executionLines = formatToolExecutionLines("bash", { command: "npm test" }, multilineErr);
+		assert.ok(executionLines.every((l) => !l.includes("\n") && !l.includes("\r")));
+
+		const card = renderCardBox({
+			toolName: "bash",
+			status: "running",
+			spinnerFrame: "⠋",
+			contentLines: ["$ echo hello\necho world", "raw line with\nembedded newline"],
+			width: 60,
+		});
+		assert.ok(card.every((line) => !line.includes("\n") && !line.includes("\r")));
+		assert.ok(card[0].includes("bash"));
+		assert.ok(card[card.length - 1].includes("╰"));
 	});
 });

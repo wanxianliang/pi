@@ -100,14 +100,25 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 	const topLine = `${headerPrefix}${trFillPart}`;
 
 	// 3. Clean up content lines (strip redundant leading tool name from first line)
+	const rawFlatLines: string[] = [];
+	for (const raw of contentLines) {
+		if (typeof raw === "string") {
+			if (raw.includes("\n") || raw.includes("\r")) {
+				rawFlatLines.push(...raw.split(/\r\n|\r|\n/));
+			} else {
+				rawFlatLines.push(raw);
+			}
+		}
+	}
+
 	const normalizedLines: string[] = [];
-	if (contentLines.length > 0) {
-		const firstLine = toolName ? stripLeadingToolName(contentLines[0], toolName) : contentLines[0];
+	if (rawFlatLines.length > 0) {
+		const firstLine = toolName ? stripLeadingToolName(rawFlatLines[0], toolName) : rawFlatLines[0];
 		if (firstLine.trim().length > 0) {
 			normalizedLines.push(firstLine);
 		}
-		for (let i = 1; i < contentLines.length; i++) {
-			normalizedLines.push(contentLines[i]);
+		for (let i = 1; i < rawFlatLines.length; i++) {
+			normalizedLines.push(rawFlatLines[i]);
 		}
 	}
 

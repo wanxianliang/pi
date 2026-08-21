@@ -25,7 +25,8 @@ export function formatToolArgs(_toolName: string, args: unknown): string[] {
 
 	// 2. Shell Command (e.g. bash)
 	if (typeof record.command === "string") {
-		return [`${PALETTE.accent("$")} ${record.command}`];
+		const cmdLines = record.command.split(/\r\n|\r|\n/);
+		return cmdLines.map((line, i) => (i === 0 ? `${PALETTE.accent("$")} ${line}` : `  ${line}`));
 	}
 
 	// 3. File read/write/edit paths
@@ -58,16 +59,16 @@ export function formatToolArgs(_toolName: string, args: unknown): string[] {
 	// 5. Generic object: format as clean key-value pairs
 	const entries = Object.entries(record);
 	if (entries.length === 0) return [];
-	if (entries.length === 1) {
-		const [k, v] = entries[0];
+	const result: string[] = [];
+	for (const [k, v] of entries) {
 		const vStr = typeof v === "object" ? JSON.stringify(v) : String(v);
-		return [`${PALETTE.muted(`${k}:`)} ${vStr}`];
+		const vLines = vStr.split(/\r\n|\r|\n/);
+		result.push(`${PALETTE.muted(`${k}:`)} ${vLines[0]}`);
+		for (let i = 1; i < vLines.length; i++) {
+			result.push(`  ${vLines[i]}`);
+		}
 	}
-
-	return entries.map(([k, v]) => {
-		const vStr = typeof v === "object" ? JSON.stringify(v) : String(v);
-		return `${PALETTE.muted(`${k}:`)} ${vStr}`;
-	});
+	return result;
 }
 
 export function stripLeadingToolName(line: string, toolName: string): string {

@@ -98,7 +98,16 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 
 	const ANSI_BG_REGEX = /\x1b\[(?:4[0-8]|10[0-7]|48;[25];[^m]+)m|\x1b\[49m/g;
 	function stripAnsiBackgrounds(lines: string[]): string[] {
-		return lines.map((line) => line.replace(ANSI_BG_REGEX, ""));
+		const result: string[] = [];
+		for (const line of lines) {
+			const clean = line.replace(ANSI_BG_REGEX, "");
+			if (clean.includes("\n") || clean.includes("\r")) {
+				result.push(...clean.split(/\r\n|\r|\n/));
+			} else {
+				result.push(clean);
+			}
+		}
+		return result;
 	}
 
 	// 3. UserMessageComponent card styling

@@ -127,16 +127,21 @@ export function formatToolExecutionLines(
 
 	// 2. Results
 	if (result) {
-		if (lines.length > 0) {
-			lines.push("");
-		}
-
 		if (result.isError) {
+			if (lines.length > 0) {
+				lines.push("");
+			}
 			const errorText = result.content?.find((c) => c.type === "text")?.text || "Error occurred";
-			lines.push(PALETTE.error(errorText));
+			const errLines = errorText.split(/\r\n|\r|\n/);
+			for (const errLine of errLines) {
+				lines.push(PALETTE.error(errLine));
+			}
 		} else {
 			const textOutput = result.content?.find((c) => c.type === "text")?.text;
-			if (textOutput) {
+			if (textOutput && textOutput.trim().length > 0) {
+				if (lines.length > 0) {
+					lines.push("");
+				}
 				const rawText = String(textOutput).trim();
 				let detectedLang = "typescript";
 				let formattedText = rawText;
