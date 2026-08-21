@@ -330,18 +330,79 @@ export function createBottomInputEditor(
 		}
 		return new BeautifiedEditor();
 	}
-	return new FallbackBeautifiedInputEditor(tui, editorTheme, state);
+	return new FallbackBeautifiedInputEditor(tui, editorTheme, keybindings, state);
 }
 
 class FallbackBeautifiedInputEditor extends Editor {
 	private readonly stateRef: BottomInputEditorState;
+	public keybindings?: any;
+	public actionHandlers: Map<string, () => void> = new Map();
+	public onEscape?: () => void;
+	public onCtrlD?: () => void;
+	public onPasteImage?: () => void;
+	public onExtensionShortcut?: (data: string) => boolean;
 
-	constructor(tui: any, editorTheme: ThemeLike, stateRef: BottomInputEditorState) {
+	constructor(tui: any, editorTheme: ThemeLike, keybindings: any, stateRef: BottomInputEditorState) {
 		super(tui, editorTheme as any, { paddingX: 0 });
+		this.keybindings = keybindings;
 		this.stateRef = stateRef;
 	}
 
-	render(width: number): string[] {
+	onAction(action: string, handler: () => void): void {
+		this.actionHandlers.set(action, handler);
+	}
+
+	override handleInput(data: string): void {
+		if (this.onExtensionShortcut?.(data)) {
+			return;
+		}
+
+		if (this.keybindings?.matches?.(data, "app.clipboard.pasteImage")) {
+			this.onPasteImage?.();
+			return;
+		}
+
+		if (this.keybindings?.matches?.(data, "app.interrupt")) {
+			if (!this.isShowingAutocomplete()) {
+				const handler = this.onEscape ?? this.actionHandlers.get("app.interrupt");
+				if (handler) {
+					handler();
+					return;
+				}
+			}
+			super.handleInput(data);
+			return;
+		}
+
+		if (this.keybindings?.matches?.(data, "app.exit")) {
+			if (this.getText().length === 0) {
+				const handler = this.onCtrlD ?? this.actionHandlers.get("app.exit");
+				if (handler) {
+					handler();
+					return;
+				}
+			}
+		}
+
+		if (
+			this.keybindings?.matches?.(data, "tui.editor.historyPrevious") ||
+			this.keybindings?.matches?.(data, "tui.editor.historyNext")
+		) {
+			super.handleInput(data);
+			return;
+		}
+
+		for (const [action, handler] of this.actionHandlers) {
+			if (action !== "app.interrupt" && action !== "app.exit" && this.keybindings?.matches?.(data, action)) {
+				handler();
+				return;
+			}
+		}
+
+		super.handleInput(data);
+	}
+
+	override render(width: number): string[] {
 		if (!this.stateRef.beautifiedInputEnabled || width < MIN_FRAME_WIDTH) return super.render(width);
 		const innerWidth = Math.max(1, Math.floor(width) - 4);
 		const base = super.render(innerWidth);

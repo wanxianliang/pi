@@ -83,6 +83,11 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		});
 	}
 
+	const ANSI_BG_REGEX = /\x1b\[(?:4[0-8]|10[0-7]|48;[25];[^m]+)m|\x1b\[49m/g;
+	function stripAnsiBackgrounds(lines: string[]): string[] {
+		return lines.map((line) => line.replace(ANSI_BG_REGEX, ""));
+	}
+
 	// 3. UserMessageComponent card styling
 	if (options?.UserMessageComponent) {
 		const UserClass = options.UserMessageComponent;
@@ -101,7 +106,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			const cardLines = renderCardBox({
 				title: "You",
 				variant: "user",
-				contentLines: rawLines,
+				contentLines: stripAnsiBackgrounds(rawLines),
 				width,
 				paddingX: 2,
 				limitHeight: false,
@@ -114,6 +119,25 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		restorers.push(() => {
 			UserClass.prototype.render = origUserRender;
 		});
+	}
+
+	// Safe markdown transformer runner
+	function createTransform(
+		messageType: string,
+		isStreaming: boolean,
+		transformers?: readonly any[],
+	): ((markdown: string, availableWidth: number) => string) | undefined {
+		if (!transformers || transformers.length === 0) return undefined;
+		return (markdown: string, availableWidth: number) => {
+			let transformed = markdown;
+			for (const t of transformers) {
+				try {
+					const res = t(transformed, { messageType, isStreaming, availableWidth });
+					if (typeof res === "string") transformed = res;
+				} catch {}
+			}
+			return transformed;
+		};
 	}
 
 	// 4. AssistantMessageComponent thinking card
@@ -138,15 +162,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 				if (content.type === "text" && content.text?.trim()) {
 					this.contentContainer.addChild(
 						new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, undefined, {
-							transform: this.markdownTransformers?.length
-								? (token: any) => {
-										let result = token;
-										for (const t of this.markdownTransformers) {
-											result = t("assistant", result, this.isStreaming) ?? result;
-										}
-										return result;
-									}
-								: undefined,
+							transform: createTransform("assistant", this.isStreaming, this.markdownTransformers),
 						}),
 					);
 				} else if (content.type === "thinking") {
@@ -171,15 +187,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 							this.markdownTheme,
 							undefined,
 							{
-								transform: this.markdownTransformers?.length
-									? (token: any) => {
-											let result = token;
-											for (const t of this.markdownTransformers) {
-												result = t("assistant-thinking", result, this.isStreaming) ?? result;
-											}
-											return result;
-										}
-									: undefined,
+								transform: createTransform("assistant-thinking", this.isStreaming, this.markdownTransformers),
 							},
 						);
 
@@ -187,10 +195,12 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 						const thinkingCard = {
 							render: (w: number): string[] => {
 								const lines = thinkingMarkdown.render(Math.max(20, w - 4));
+								const frame = SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length];
 								const card = renderCardBox({
 									title: "Thinking",
 									variant: "thinking",
 									status: streaming ? "running" : "default",
+									spinnerFrame: frame,
 									contentLines: lines,
 									width: w,
 									paddingX: 2,
@@ -237,13 +247,13 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		const origToolRender = ToolClass.prototype.render;
 		const origUpdateArgs = ToolClass.prototype.updateArgs;
 		const origUpdateResult = ToolClass.prototype.updateResult;
+		const origMarkExecutionStarted = ToolClass.prototype.markExecutionStarted;
+		const origSetArgsComplete = ToolClass.prototype.setArgsComplete;
 
 		function updateSpinnerState(comp: any) {
 			if (comp.isPartial && comp.executionStarted) {
 				if (!comp.__spinnerInterval) {
-					comp.__spinnerFrame = 0;
 					comp.__spinnerInterval = setInterval(() => {
-						comp.__spinnerFrame = ((comp.__spinnerFrame ?? 0) + 1) % SPINNER_FRAMES.length;
 						comp.ui?.requestRender?.();
 					}, 80);
 				}
@@ -258,8 +268,18 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			updateSpinnerState(this);
 		};
 
-		ToolClass.prototype.updateResult = function (this: any, result: any) {
-			origUpdateResult.call(this, result);
+		ToolClass.prototype.markExecutionStarted = function (this: any) {
+			origMarkExecutionStarted?.call(this);
+			updateSpinnerState(this);
+		};
+
+		ToolClass.prototype.setArgsComplete = function (this: any) {
+			origSetArgsComplete?.call(this);
+			updateSpinnerState(this);
+		};
+
+		ToolClass.prototype.updateResult = function (this: any, result: any, isPartial = false) {
+			origUpdateResult.call(this, result, isPartial);
 			updateSpinnerState(this);
 		};
 
@@ -288,12 +308,12 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 					? "error"
 					: "success";
 
-			const frame = this.__spinnerFrame ?? 0;
+			const frame = SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length];
 			const cardLines = renderCardBox({
 				toolName: this.toolName,
 				status,
-				spinnerFrame: SPINNER_FRAMES[frame],
-				contentLines: rawLines,
+				spinnerFrame: frame,
+				contentLines: stripAnsiBackgrounds(rawLines),
 				width,
 				isExpanded: this.expanded,
 				paddingX: 2,
@@ -319,6 +339,8 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			ToolClass.prototype.render = origToolRender;
 			ToolClass.prototype.updateArgs = origUpdateArgs;
 			ToolClass.prototype.updateResult = origUpdateResult;
+			if (origMarkExecutionStarted) ToolClass.prototype.markExecutionStarted = origMarkExecutionStarted;
+			if (origSetArgsComplete) ToolClass.prototype.setArgsComplete = origSetArgsComplete;
 		});
 	}
 
@@ -327,13 +349,23 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		const ModeClass = options.InteractiveMode;
 		const origInit = ModeClass.prototype.init;
 		ModeClass.prototype.init = async function (this: any) {
-			if (this.session && this.headerContainer) {
-				this.builtInHeader = createStartupHero(() => this.session.model, this.version);
-				if (this.headerContainer.children?.length > 1) {
-					this.headerContainer.children[1] = this.builtInHeader;
-				}
+			const res = await origInit.call(this);
+			if (this.loadedResourcesContainer) {
+				this.loadedResourcesContainer.clear();
 			}
-			return origInit.call(this);
+			if (this.headerContainer && (!this.settingsManager || !this.settingsManager.getQuietStartup())) {
+				const hero = createStartupHero(() => this.session?.model, this.version);
+				this.builtInHeader = hero;
+				if (this.headerContainer.children?.length >= 2) {
+					this.headerContainer.children[1] = hero;
+				} else if (this.headerContainer.children?.length === 1) {
+					this.headerContainer.children[0] = hero;
+				} else {
+					this.headerContainer.addChild(hero);
+				}
+				this.ui?.requestRender?.();
+			}
+			return res;
 		};
 		restorers.push(() => {
 			ModeClass.prototype.init = origInit;

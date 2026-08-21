@@ -55,30 +55,30 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 	} else if (variant === "thinking") {
 		cardTitleStyled = PALETTE.purpleBold(`${STATUS_ICONS.thinking} Thinking`);
 		if (status === "running" || status === "pending") {
-			statusBadge = PALETTE.badgeBgRunning(`${spinnerFrame} Reasoning`);
+			statusBadge = PALETTE.badgeRunning(`${spinnerFrame} Reasoning`);
 		} else {
-			statusBadge = PALETTE.badgeBgThinking("Analyzed");
+			statusBadge = PALETTE.badgeThinking("Analyzed");
 		}
 	} else if (variant === "assistant") {
 		cardTitleStyled = PALETTE.accentBold(`${STATUS_ICONS.assistant} Pi`);
 		if (status === "running" || status === "pending") {
-			statusBadge = PALETTE.badgeBgRunning(`${spinnerFrame} Generating`);
+			statusBadge = PALETTE.badgeRunning(`${spinnerFrame} Generating`);
 		} else {
-			statusBadge = PALETTE.badgeBgAssistant("Response");
+			statusBadge = PALETTE.badgeAssistant("Response");
 		}
 	} else {
 		// Tool variant
 		if (status === "running") {
-			statusBadge = PALETTE.badgeBgRunning(`${spinnerFrame} Running`);
+			statusBadge = PALETTE.badgeRunning(`${spinnerFrame} Running`);
 			cardTitleStyled = PALETTE.accentBold(`${STATUS_ICONS.code} ${title}`);
 		} else if (status === "pending") {
-			statusBadge = PALETTE.badgeBgRunning("Preparing");
+			statusBadge = PALETTE.badgeRunning("Preparing");
 			cardTitleStyled = PALETTE.accentBold(`${STATUS_ICONS.code} ${title}`);
 		} else if (status === "error") {
-			statusBadge = PALETTE.badgeBgError(`${STATUS_ICONS.error} Error`);
+			statusBadge = PALETTE.badgeError(`${STATUS_ICONS.error} Error`);
 			cardTitleStyled = PALETTE.errorBold(`${STATUS_ICONS.error} ${title}`);
 		} else {
-			statusBadge = PALETTE.badgeBgSuccess(`${STATUS_ICONS.success} Done`);
+			statusBadge = PALETTE.badgeSuccess(`${STATUS_ICONS.success} Done`);
 			cardTitleStyled = PALETTE.successBold(`${STATUS_ICONS.success} ${title}`);
 		}
 	}

@@ -110,7 +110,8 @@ export const KEYBINDINGS = {
 		description: "Restore queued messages",
 	},
 	"app.clipboard.pasteImage": {
-		defaultKeys: process.platform === "win32" ? "alt+v" : "ctrl+v",
+		defaultKeys:
+			process.platform === "darwin" ? ["ctrl+v", "super+v"] : process.platform === "win32" ? "alt+v" : "ctrl+v",
 		description: "Paste image from clipboard (text fallback)",
 	},
 	"app.session.new": { defaultKeys: [], description: "Start a new session" },
