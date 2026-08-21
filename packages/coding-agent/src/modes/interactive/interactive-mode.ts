@@ -10,6 +10,7 @@ import * as path from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import type { AssistantMessage, ImageContent, Message, Model, Usage } from "@earendil-works/pi-ai/compat";
+import { initPiEnhanceTui, stripCardBorders } from "@earendil-works/pi-enhance-tui";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -365,6 +366,14 @@ interface InteractiveTuiOptions {
 
 /** Composition root for selecting the interactive terminal renderer. */
 export function createInteractiveTui(options: InteractiveTuiOptions): TuiMainScreen | TuiAltScreen {
+	initPiEnhanceTui({
+		AssistantMessageComponent,
+		UserMessageComponent,
+		ToolExecutionComponent,
+		FooterComponent,
+		InteractiveMode,
+		ProcessTerminal,
+	});
 	const terminal = options.terminal ?? new ProcessTerminal();
 	if (options.tuiMode === "fullscreen") {
 		const styleSearchMatch = (text: string) => theme.bg("searchMatchBg", theme.fg("searchMatchText", text));
@@ -375,7 +384,7 @@ export function createInteractiveTui(options: InteractiveTuiOptions): TuiMainScr
 			onRightClickPaste: options.onRightClickPaste,
 			copySelection: async (text) => {
 				try {
-					await copyToClipboard(text);
+					await copyToClipboard(stripCardBorders(text));
 					return true;
 				} catch {
 					return false;

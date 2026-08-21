@@ -1,0 +1,47 @@
+{
+	"name": "@earendil-works/pi-enhance-tui",
+	"version": "0.84.2",
+	"description": "High-performance enhancements and Bun runtime optimizations for pi-tui",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"clean": "shx rm -rf dist",
+		"build": "tsgo -p tsconfig.build.json",
+		"test": "node --test test/*.test.ts",
+		"prepublishOnly": "npm run clean && npm run build"
+	},
+	"files": [
+		"dist/**/*",
+		"README.md"
+	],
+	"keywords": [
+		"tui",
+		"terminal",
+		"bun",
+		"performance",
+		"differential-rendering"
+	],
+	"author": "Mario Zechner",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/earendil-works/pi.git",
+		"directory": "packages/pi-enhance-tui"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"dependencies": {
+		"@earendil-works/pi-tui": "0.84.2"
+	},
+	"devDependencies": {
+		"shx": "0.4.0"
+	}
+}
