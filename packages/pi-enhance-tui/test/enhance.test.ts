@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
 	FastTextMeasureEngine,
+	getMaxVisibleMessages,
 	highlightCode,
 	initPiEnhanceTui,
 	isFooterSuppressed,
@@ -61,5 +62,58 @@ describe("pi-enhance-tui core suite", () => {
 		assert.ok(stripped.includes("clean text"));
 		assert.ok(!stripped.includes("╭"));
 		assert.ok(!stripped.includes("╰"));
+	});
+
+	it("windowed chat container limits rendered items and shows fold notice", async () => {
+		const fakeChatContainer = {
+			children: [] as any[],
+			render(width: number): string[] {
+				return this.children.flatMap((c: any) => c.render(width));
+			},
+			invalidate(): void {},
+		};
+
+		class MockInteractiveMode {
+			chatContainer = fakeChatContainer;
+			headerContainer = {
+				children: [] as any[],
+				addChild(c: any) {
+					this.children.push(c);
+				},
+			};
+			loadedResourcesContainer = { clear() {} };
+			session = { model: { id: "test-model" } };
+			version = "0.84.2";
+			ui = { requestRender() {} };
+			async init() {}
+		}
+
+		process.env.PI_MAX_VISIBLE_MESSAGES = "3";
+		assert.strictEqual(getMaxVisibleMessages(), 3);
+
+		const instance = initPiEnhanceTui({
+			InteractiveMode: MockInteractiveMode,
+		});
+
+		const mode = new MockInteractiveMode();
+		await mode.init();
+
+		for (let i = 1; i <= 5; i++) {
+			fakeChatContainer.children.push({
+				render: () => [`Message ${i}`],
+			});
+		}
+
+		const rendered = fakeChatContainer.render(80);
+		assert.ok(rendered.some((l) => l.includes("已折叠 2 条早期历史消息")));
+		assert.ok(!rendered.some((l) => l.includes("Message 1")));
+		assert.ok(!rendered.some((l) => l.includes("Message 2")));
+		assert.ok(rendered.some((l) => l.includes("Message 3")));
+		assert.ok(rendered.some((l) => l.includes("Message 4")));
+		assert.ok(rendered.some((l) => l.includes("Message 5")));
+
+		instance.restore();
+		delete process.env.PI_MAX_VISIBLE_MESSAGES;
+		assert.strictEqual(getMaxVisibleMessages(), 25);
 	});
 });

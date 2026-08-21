@@ -8,6 +8,8 @@ import { FastTextMeasureEngine } from "./measure.ts";
 import { createStartupHero } from "./ui/banner.ts";
 import { renderCardBox } from "./ui/card-box.ts";
 import { SPINNER_FRAMES } from "./ui/spinner.ts";
+import { PALETTE } from "./ui/theme.ts";
+import { formatToolExecutionLines } from "./ui/tool-card.ts";
 import { BunTerminalWriter } from "./writer.ts";
 
 let footerSuppressed = false;
@@ -18,6 +20,17 @@ export function setFooterSuppressed(suppressed: boolean): void {
 
 export function isFooterSuppressed(): boolean {
 	return footerSuppressed;
+}
+
+export function getMaxVisibleMessages(): number {
+	const envVal = process.env.PI_MAX_VISIBLE_MESSAGES;
+	if (envVal !== undefined) {
+		const parsed = Number.parseInt(envVal, 10);
+		if (Number.isFinite(parsed) && parsed >= 0) {
+			return parsed;
+		}
+	}
+	return 25; // default 25
 }
 
 export interface EnhanceTuiOptions {
@@ -160,11 +173,32 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			for (let i = 0; i < message.content.length; i++) {
 				const content = message.content[i];
 				if (content.type === "text" && content.text?.trim()) {
-					this.contentContainer.addChild(
-						new Markdown(content.text.trim(), this.outputPad, 0, this.markdownTheme, undefined, {
-							transform: createTransform("assistant", this.isStreaming, this.markdownTransformers),
-						}),
-					);
+					const textMarkdown = new Markdown(content.text.trim(), 0, 0, this.markdownTheme, undefined, {
+						transform: createTransform("assistant", this.isStreaming, this.markdownTransformers),
+					});
+					const streaming = this.isStreaming;
+					const assistantCard = {
+						render: (w: number): string[] => {
+							const contentWidth = Math.max(10, Math.min(w, 120) - 2 - 4);
+							const rawLines = textMarkdown.render(contentWidth);
+							const cleanLines = stripAnsiBackgrounds(rawLines);
+							const frame = SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length];
+							const card = renderCardBox({
+								title: "Pi",
+								variant: "assistant",
+								status: streaming ? "running" : "default",
+								spinnerFrame: frame,
+								contentLines: cleanLines,
+								width: w,
+								paddingX: 2,
+								paddingY: 1,
+								limitHeight: false,
+							});
+							return ["", ...card];
+						},
+						invalidate: () => textMarkdown.invalidate(),
+					};
+					this.contentContainer.addChild(assistantCard as any);
 				} else if (content.type === "thinking") {
 					const thinkingBlocks: string[] = [];
 					for (; i < message.content.length; i++) {
@@ -290,9 +324,12 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			if (this.hasRendererDefinition?.() && this.getRenderShell?.() === "self") {
 				rawLines = this.selfRenderContainer.render(width);
 			} else {
-				rawLines = origToolRender.call(this, width);
-				if (rawLines.length > 0 && rawLines[0] === "") {
-					rawLines = rawLines.slice(1);
+				rawLines = formatToolExecutionLines(this.toolName, this.args, this.result);
+				if (rawLines.length === 0) {
+					rawLines = origToolRender.call(this, width);
+					if (rawLines.length > 0 && rawLines[0] === "") {
+						rawLines = rawLines.slice(1);
+					}
 				}
 			}
 
@@ -344,7 +381,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		});
 	}
 
-	// 6. InteractiveMode startup hero
+	// 6. InteractiveMode startup hero & windowed chat history
 	if (options?.InteractiveMode) {
 		const ModeClass = options.InteractiveMode;
 		const origInit = ModeClass.prototype.init;
@@ -363,8 +400,58 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 				} else {
 					this.headerContainer.addChild(hero);
 				}
-				this.ui?.requestRender?.();
 			}
+
+			// Windowed chat container rendering (default 25 latest messages/cards)
+			if (this.chatContainer && !this.chatContainer.__piEnhanceTuiWindowed) {
+				const container = this.chatContainer;
+				const origChatRender = container.render.bind(container);
+				const origChatInvalidate = container.invalidate?.bind(container);
+
+				container.render = function (width: number): string[] {
+					const maxVisible = getMaxVisibleMessages();
+					if (maxVisible <= 0 || this.children.length <= maxVisible) {
+						return origChatRender(width);
+					}
+					const hiddenCount = this.children.length - maxVisible;
+					const visibleChildren = this.children.slice(hiddenCount);
+
+					const lines: string[] = [
+						PALETTE.muted(`... (已折叠 ${hiddenCount} 条早期历史消息，完整上下文仍在 LLM 记忆中)`),
+						"",
+					];
+					for (const child of visibleChildren) {
+						const childLines = child.render(width);
+						for (const line of childLines) {
+							lines.push(line);
+						}
+					}
+					return lines;
+				};
+
+				if (origChatInvalidate) {
+					container.invalidate = function (): void {
+						const maxVisible = getMaxVisibleMessages();
+						if (maxVisible <= 0 || this.children.length <= maxVisible) {
+							origChatInvalidate();
+							return;
+						}
+						const visibleChildren = this.children.slice(this.children.length - maxVisible);
+						for (const child of visibleChildren) {
+							child.invalidate?.();
+						}
+					};
+				}
+
+				container.__piEnhanceTuiWindowed = true;
+				restorers.push(() => {
+					container.render = origChatRender;
+					if (origChatInvalidate) container.invalidate = origChatInvalidate;
+					delete container.__piEnhanceTuiWindowed;
+				});
+			}
+
+			this.ui?.requestRender?.();
 			return res;
 		};
 		restorers.push(() => {

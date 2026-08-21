@@ -22,6 +22,7 @@ export interface CardBoxOptions {
 	maxHeightFinished?: number;
 	isExpanded?: boolean;
 	paddingX?: number;
+	paddingY?: number;
 	limitHeight?: boolean;
 }
 
@@ -38,6 +39,7 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 		maxHeightFinished = 12,
 		isExpanded = false,
 		paddingX = 2,
+		paddingY = 1,
 		limitHeight = true,
 	} = options;
 
@@ -64,7 +66,7 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 		if (status === "running" || status === "pending") {
 			statusBadge = PALETTE.badgeRunning(`${spinnerFrame} Generating`);
 		} else {
-			statusBadge = PALETTE.badgeAssistant("Response");
+			statusBadge = "";
 		}
 	} else {
 		// Tool variant
@@ -131,6 +133,13 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 	const padRight = " ".repeat(paddingX);
 	const leftV = PALETTE.border(BORDER_CHARS.v);
 	const rightV = PALETTE.border(BORDER_CHARS.v);
+	const emptyRow = `${leftV}${" ".repeat(innerWidth)}${rightV}`;
+
+	if (displayLines.length > 0) {
+		for (let i = 0; i < paddingY; i++) {
+			resultLines.push(emptyRow);
+		}
+	}
 
 	// 5. Render content lines inside unified 4-sided border
 	for (const rawLine of displayLines) {
@@ -158,6 +167,12 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 			vW > contentWidth ? sliceByColumn(hintText, 0, contentWidth, true) : hintText + " ".repeat(contentWidth - vW);
 		const row = `${leftV}${padLeft}${fitted}${padRight}${rightV}`;
 		resultLines.push(row);
+	}
+
+	if (displayLines.length > 0) {
+		for (let i = 0; i < paddingY; i++) {
+			resultLines.push(emptyRow);
+		}
 	}
 
 	// 6. Bottom Line: ╰────────────────────────────╯
