@@ -30,7 +30,7 @@ export function getMaxVisibleMessages(): number {
 			return parsed;
 		}
 	}
-	return 25; // default 25
+	return 50; // default 50 (allows retaining multiple tool-calling turns before folding)
 }
 
 export interface EnhanceTuiOptions {

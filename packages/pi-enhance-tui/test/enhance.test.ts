@@ -116,7 +116,7 @@ describe("pi-enhance-tui core suite", () => {
 
 		instance.restore();
 		delete process.env.PI_MAX_VISIBLE_MESSAGES;
-		assert.strictEqual(getMaxVisibleMessages(), 25);
+		assert.strictEqual(getMaxVisibleMessages(), 50);
 	});
 
 	it("renderCardBox sanitizes multiline content so no line contains embedded newlines", () => {
