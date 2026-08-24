@@ -29,6 +29,7 @@ async function runCli(args: string[], cwd: string, agentDir: string): Promise<{ 
 				...process.env,
 				[ENV_AGENT_DIR]: agentDir,
 				PI_OFFLINE: "1",
+				NODE_NO_WARNINGS: "1",
 				TSX_TSCONFIG_PATH: resolve(__dirname, "../../../tsconfig.json"),
 			},
 			stdio: ["ignore", "ignore", "pipe"],

@@ -16,6 +16,14 @@ export interface PiEnhanceConfig {
 }
 
 export function loadEnhanceConfig(): PiEnhanceConfig {
+	if (process.env.VITEST || process.env.NODE_ENV === "test" || process.env.PI_OFFLINE === "1") {
+		return {
+			skills: { enabled: true, disabledNames: [] },
+			extensions: { enabled: true, disabledNames: [] },
+			tools: { enabled: true, builtinEnabled: true, pluginEnabled: true, disabledNames: [] },
+			webPort: 10240,
+		};
+	}
 	try {
 		if (fs.existsSync(ENHANCE_CONFIG_PATH)) {
 			return JSON.parse(fs.readFileSync(ENHANCE_CONFIG_PATH, "utf-8"));
