@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	cacheHitRatioFromUsage,
 	copyToSystemClipboard,
 	createBottomInputRuntime,
+	getUsageTokenTotal,
+	isAssistantUsage,
+	registerPiUiCustomExtension,
 	renderBeautifiedEditorFrame,
+	renderDetailedTokenStatus,
+	renderFrameStatus,
 	resolveBottomInputShortcuts,
 	sanitizeTerminalSingleLineText,
 	sanitizeTerminalText,
@@ -81,4 +87,114 @@ test("stripCardBorders removes card box borders and padding", () => {
 test("copyToSystemClipboard handles copy safely", async () => {
 	const ok = await copyToSystemClipboard("pi-enhance-test-copy");
 	assert.equal(typeof ok, "boolean");
+});
+
+test("cacheHitRatioFromUsage calculates cache hit ratios correctly", () => {
+	const anthropicUsage = { input: 200, cacheRead: 800, cacheWrite: 0, output: 50 };
+	const ratio = cacheHitRatioFromUsage(anthropicUsage);
+	assert.equal(ratio, 80);
+
+	const openAiUsage = { prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 500 } };
+	const openAiRatio = cacheHitRatioFromUsage(openAiUsage);
+	assert.equal(openAiRatio, 50);
+
+	const noCacheUsage = { input: 100, cacheRead: 0, cacheWrite: 0, output: 50 };
+	const noCacheRatio = cacheHitRatioFromUsage(noCacheUsage);
+	assert.equal(noCacheRatio, 0);
+});
+
+test("renderDetailedTokenStatus renders cache hit ratio when present", () => {
+	const theme = {
+		fg: (_t: string, s: string) => s,
+		bg: (_t: string, s: string) => s,
+		bold: (s: string) => s,
+	};
+	const usage = { tokens: 10000, contextWindow: 200000, percent: 5.0 };
+	const rawUsage = { input: 200, cacheRead: 800, cacheWrite: 0, output: 50 };
+
+	const status = renderDetailedTokenStatus(usage, rawUsage, "anthropic", theme);
+	assert.ok(status !== null);
+	assert.ok(status.includes("5.0%/200k"));
+	assert.ok(status.includes("⚡80%"));
+	assert.ok(status.includes("(anthropic)"));
+});
+
+test("renderFrameStatus includes cache hit ratio in context segment", () => {
+	const theme = {
+		fg: (_t: string, s: string) => s,
+		bg: (_t: string, s: string) => s,
+		bold: (s: string) => s,
+	};
+	const frameStatus = renderFrameStatus({
+		ctx: {
+			model: { id: "claude-3-7-sonnet", provider: "anthropic", contextWindow: 200000 },
+			getContextUsage: () => ({ tokens: 20000, contextWindow: 200000, percent: 10 }),
+		},
+		theme,
+		width: 80,
+		beautifiedInputEnabled: true,
+		isStreaming: false,
+		liveUsage: null,
+		latestAssistantUsage: { input: 100, cacheRead: 900, cacheWrite: 0, output: 50 },
+		currentThinkingLevel: null,
+		sessionStartTime: Date.now(),
+		now: Date.now(),
+		lastPrompt: "",
+	});
+
+	assert.ok(frameStatus.context !== null);
+	assert.ok(frameStatus.context.includes("⚡90%"));
+});
+
+test("cacheHitRatioFromUsage supports diverse provider usage shapes", () => {
+	const deepSeekUsage = { prompt_tokens: 1000, prompt_cache_hit_tokens: 750 };
+	assert.equal(cacheHitRatioFromUsage(deepSeekUsage), 75);
+
+	const geminiUsage = { promptTokenCount: 500, cachedContentTokenCount: 250 };
+	assert.equal(cacheHitRatioFromUsage(geminiUsage), 50);
+
+	const snakeCaseUsage = { input: 100, cache_read: 400, cache_write: 0 };
+	assert.equal(cacheHitRatioFromUsage(snakeCaseUsage), 80);
+});
+
+test("isAssistantUsage and getUsageTokenTotal handle diverse usage formats", () => {
+	assert.equal(isAssistantUsage({ prompt_tokens: 100, completion_tokens: 50 }), true);
+	assert.equal(isAssistantUsage({ promptTokenCount: 100 }), true);
+	assert.equal(isAssistantUsage({ cacheRead: 50 }), true);
+	assert.equal(isAssistantUsage(null), false);
+
+	const total = getUsageTokenTotal({ input: 100, output: 50, cacheRead: 200, cacheWrite: 50 });
+	assert.equal(total, 400);
+});
+
+test("registerPiUiCustomExtension captures usage on message_end and turn_end", () => {
+	const handlers = new Map<string, (...args: any[]) => any>();
+	const mockPi = {
+		registerCommand: () => {},
+		on: (event: string, handler: (...args: any[]) => any) => {
+			handlers.set(event, handler);
+		},
+	};
+	const runtime = createBottomInputRuntime({ startClock: false });
+	registerPiUiCustomExtension(mockPi, { bottomInputRuntime: runtime });
+
+	const ctx = {
+		model: { id: "claude-3-7-sonnet", provider: "anthropic", contextWindow: 200000 },
+		getContextUsage: () => ({ tokens: 5000, contextWindow: 200000, percent: 2.5 }),
+	};
+
+	handlers.get("message_end")?.(
+		{ message: { usage: { input: 200, cacheRead: 800, cacheWrite: 0, output: 10 } } },
+		ctx,
+	);
+
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const status = renderDetailedTokenStatus(
+		ctx.getContextUsage(),
+		(runtime as any).latestAssistantUsage,
+		"anthropic",
+		theme,
+	);
+	assert.ok(status !== null);
+	assert.ok(status.includes("⚡80%"));
 });

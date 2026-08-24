@@ -144,16 +144,27 @@ export function registerPiUiCustomExtension(pi: any, deps: { bottomInputRuntime?
 
 	pi.on("message_update", (event: any, ctx: any) => {
 		bottomInputRuntime.bindSession(ctx);
-		bottomInputRuntime.setLiveUsage(event?.message?.usage);
+		const usage = event?.message?.usage ?? event?.usage ?? event?.assistantMessageEvent?.partial?.usage;
+		if (usage) {
+			bottomInputRuntime.setLiveUsage(usage);
+		}
 	});
 
-	pi.on("message_end", (_event: any, ctx: any) => {
+	pi.on("message_end", (event: any, ctx: any) => {
 		bottomInputRuntime.bindSession(ctx);
+		const usage = event?.message?.usage ?? event?.usage;
+		if (usage) {
+			bottomInputRuntime.setLiveUsage(usage);
+		}
 		bottomInputRuntime.clearLiveUsage();
 	});
 
-	pi.on("turn_end", (_event: any, ctx: any) => {
+	pi.on("turn_end", (event: any, ctx: any) => {
 		bottomInputRuntime.bindSession(ctx);
+		const usage = event?.message?.usage ?? event?.usage ?? event?.turn?.message?.usage;
+		if (usage) {
+			bottomInputRuntime.setLiveUsage(usage);
+		}
 		bottomInputRuntime.clearLiveUsage();
 	});
 

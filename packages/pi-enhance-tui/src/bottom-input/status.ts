@@ -86,9 +86,10 @@ export function renderBottomInputStatus(input: BottomInputStatusState): BottomIn
 
 export function renderDetailedTokenStatus(
 	usage: ContextUsage | null,
-	_rawUsage: AssistantUsage | null,
+	rawUsage: AssistantUsage | null,
 	provider: string | null,
 	theme: ThemeLike,
+	cacheHitRatio: number | null = null,
 ): string | null {
 	const parts: string[] = [];
 
@@ -102,6 +103,11 @@ export function renderDetailedTokenStatus(
 		parts.push(applyHexColor(color, pctStr));
 	} else if (usage && usage.tokens > 0) {
 		parts.push(safeFg(theme, "cyan", formatTokens(usage.tokens)));
+	}
+
+	const ratio = cacheHitRatio ?? (rawUsage ? cacheHitRatioFromUsage(rawUsage) : null);
+	if (typeof ratio === "number" && Number.isFinite(ratio) && ratio > 0) {
+		parts.push(safeFg(theme, "success", `⚡${Math.round(ratio)}%`, "cyan"));
 	}
 
 	if (provider) {
@@ -120,13 +126,13 @@ export function renderFrameStatus(
 		input.currentThinkingLevel ??
 		readThinkingLevelFromSession(input.ctx),
 	usage = readContextUsageSnapshot(input.ctx, input.isStreaming, input.liveUsage, input.latestAssistantUsage),
-	_cacheHitRatio: number | null = null,
+	cacheHitRatio: number | null = null,
 ): BottomInputFrameStatus {
 	const rawUsage = input.liveUsage ?? input.latestAssistantUsage ?? readLatestAssistantUsage(input.ctx);
 	return {
 		model: renderModelSegment(modelName, null, input.theme, input.icons ?? getBottomInputIcons()),
 		thinking: renderThinkingSegment(thinkingLevel, input.theme),
-		context: renderDetailedTokenStatus(usage, rawUsage, provider, input.theme),
+		context: renderDetailedTokenStatus(usage, rawUsage, provider, input.theme, cacheHitRatio),
 		elapsed: renderElapsedSegment(
 			input.theme,
 			input.sessionStartTime,
@@ -210,54 +216,153 @@ export function isRecord(value: unknown): value is Record<string, any> {
 }
 
 export function isAssistantUsage(value: unknown): value is AssistantUsage {
-	return (
-		isRecord(value) &&
-		typeof value.input === "number" &&
-		typeof value.output === "number" &&
-		typeof value.cacheRead === "number" &&
-		typeof value.cacheWrite === "number"
-	);
+	if (!isRecord(value)) return false;
+	const hasInput =
+		typeof value.input === "number" ||
+		typeof value.input_tokens === "number" ||
+		typeof value.prompt_tokens === "number" ||
+		typeof value.promptTokenCount === "number";
+	const hasOutput =
+		typeof value.output === "number" ||
+		typeof value.output_tokens === "number" ||
+		typeof value.completion_tokens === "number" ||
+		typeof value.candidatesTokenCount === "number";
+	const hasCache =
+		typeof value.cacheRead === "number" ||
+		typeof value.cache_read === "number" ||
+		typeof value.cache_read_input_tokens === "number" ||
+		isRecord(value.prompt_tokens_details) ||
+		typeof value.cachedContentTokenCount === "number" ||
+		typeof value.cached_tokens === "number" ||
+		typeof value.prompt_cache_hit_tokens === "number";
+	const hasTokens =
+		typeof value.totalTokens === "number" ||
+		typeof value.total_tokens === "number" ||
+		typeof value.totalTokenCount === "number";
+	return hasInput || hasOutput || hasCache || hasTokens;
 }
 
-export function getUsageTokenTotal(usage: AssistantUsage): number {
-	return typeof usage.totalTokens === "number" && usage.totalTokens > 0
-		? usage.totalTokens
-		: usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+export function getUsageTokenTotal(usage: Record<string, any>): number {
+	if (!isRecord(usage)) return 0;
+	if (typeof usage.totalTokens === "number" && usage.totalTokens > 0) return usage.totalTokens;
+	if (typeof usage.total_tokens === "number" && usage.total_tokens > 0) return usage.total_tokens;
+	if (typeof usage.totalTokenCount === "number" && usage.totalTokenCount > 0) return usage.totalTokenCount;
+	const input =
+		typeof usage.input === "number"
+			? usage.input
+			: typeof usage.input_tokens === "number"
+				? usage.input_tokens
+				: typeof usage.prompt_tokens === "number"
+					? usage.prompt_tokens
+					: typeof usage.promptTokenCount === "number"
+						? usage.promptTokenCount
+						: 0;
+	const output =
+		typeof usage.output === "number"
+			? usage.output
+			: typeof usage.output_tokens === "number"
+				? usage.output_tokens
+				: typeof usage.completion_tokens === "number"
+					? usage.completion_tokens
+					: typeof usage.candidatesTokenCount === "number"
+						? usage.candidatesTokenCount
+						: 0;
+	const cacheRead =
+		typeof usage.cacheRead === "number"
+			? usage.cacheRead
+			: typeof usage.cache_read === "number"
+				? usage.cache_read
+				: typeof usage.cache_read_input_tokens === "number"
+					? usage.cache_read_input_tokens
+					: typeof usage.cached_tokens === "number"
+						? usage.cached_tokens
+						: typeof usage.prompt_cache_hit_tokens === "number"
+							? usage.prompt_cache_hit_tokens
+							: typeof usage.cachedContentTokenCount === "number"
+								? usage.cachedContentTokenCount
+								: isRecord(usage.prompt_tokens_details) &&
+										typeof usage.prompt_tokens_details.cached_tokens === "number"
+									? usage.prompt_tokens_details.cached_tokens
+									: 0;
+	const cacheWrite =
+		typeof usage.cacheWrite === "number"
+			? usage.cacheWrite
+			: typeof usage.cache_write === "number"
+				? usage.cache_write
+				: typeof usage.cache_creation_input_tokens === "number"
+					? usage.cache_creation_input_tokens
+					: 0;
+	return input + output + cacheRead + cacheWrite;
 }
 
 export function cacheHitRatioFromUsage(usage: Record<string, any>): number | null {
+	if (!isRecord(usage)) return null;
+
 	if (
 		typeof usage.cacheRead === "number" &&
-		(typeof usage.cacheWrite === "number" || typeof usage.input === "number")
+		(typeof usage.cacheWrite === "number" || typeof usage.input === "number" || typeof usage.totalTokens === "number")
 	) {
 		const input = typeof usage.input === "number" ? usage.input : 0;
 		const cacheWrite = typeof usage.cacheWrite === "number" ? usage.cacheWrite : 0;
 		const total = input + usage.cacheRead + cacheWrite;
 		if (total > 0) return (usage.cacheRead / total) * 100;
 	}
+
 	const inputTokens = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
 	const cacheCreation = typeof usage.cache_creation_input_tokens === "number" ? usage.cache_creation_input_tokens : 0;
 	const cacheRead = typeof usage.cache_read_input_tokens === "number" ? usage.cache_read_input_tokens : 0;
 	const total = inputTokens + cacheCreation + cacheRead;
-	if (total > 0) return (cacheRead / total) * 100;
+	if (total > 0 && cacheRead > 0) return (cacheRead / total) * 100;
 
 	const inputTokens2 = typeof usage.input === "number" ? usage.input : 0;
 	const cacheRead2 = typeof usage.cache_read === "number" ? usage.cache_read : 0;
 	const cacheWrite2 = typeof usage.cache_write === "number" ? usage.cache_write : 0;
 	const total2 = inputTokens2 + cacheRead2 + cacheWrite2;
-	if (total2 > 0) return (cacheRead2 / total2) * 100;
+	if (total2 > 0 && cacheRead2 > 0) return (cacheRead2 / total2) * 100;
 
 	if (isRecord(usage.prompt_tokens_details)) {
 		const cached = usage.prompt_tokens_details.cached_tokens;
 		if (typeof cached === "number" && cached > 0) {
-			const promptTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
+			const promptTokens =
+				typeof usage.prompt_tokens === "number"
+					? usage.prompt_tokens
+					: typeof usage.input === "number"
+						? usage.input
+						: 0;
 			if (promptTokens > 0) return (cached / promptTokens) * 100;
 		}
 	}
+
+	if (typeof usage.cached_tokens === "number" && usage.cached_tokens > 0) {
+		const promptTokens =
+			typeof usage.prompt_tokens === "number"
+				? usage.prompt_tokens
+				: typeof usage.input === "number"
+					? usage.input
+					: 0;
+		if (promptTokens > 0) return (usage.cached_tokens / promptTokens) * 100;
+	}
+
+	if (typeof usage.prompt_cache_hit_tokens === "number" && usage.prompt_cache_hit_tokens > 0) {
+		const promptTokens =
+			typeof usage.prompt_tokens === "number"
+				? usage.prompt_tokens
+				: typeof usage.input === "number"
+					? usage.input
+					: 0;
+		if (promptTokens > 0) return (usage.prompt_cache_hit_tokens / promptTokens) * 100;
+	}
+
 	if (typeof usage.cachedContentTokenCount === "number" && usage.cachedContentTokenCount > 0) {
-		const promptTokens = typeof usage.promptTokenCount === "number" ? usage.promptTokenCount : 0;
+		const promptTokens =
+			typeof usage.promptTokenCount === "number"
+				? usage.promptTokenCount
+				: typeof usage.input === "number"
+					? usage.input
+					: 0;
 		if (promptTokens > 0) return (usage.cachedContentTokenCount / promptTokens) * 100;
 	}
+
 	return null;
 }
 
@@ -386,18 +491,28 @@ function readCoreContextUsage(ctx: any): ContextUsage | null {
 function readLatestAssistantUsage(ctx: any): AssistantUsage | null {
 	let latestUsage: AssistantUsage | null = null;
 	for (const entry of readBranchEntries(ctx)) {
-		if (!isRecord(entry) || entry.type !== "message" || !isRecord(entry.message)) continue;
-		if (entry.message.role !== "assistant" || !isAssistantUsage(entry.message.usage)) continue;
-		if (entry.message.stopReason === "error" || entry.message.stopReason === "aborted") continue;
-		if (getUsageTokenTotal(entry.message.usage) > 0) latestUsage = entry.message.usage;
+		if (!isRecord(entry)) continue;
+		const message = entry.type === "message" && isRecord(entry.message) ? entry.message : entry;
+		if (isRecord(message) && message.role === "assistant" && isRecord(message.usage)) {
+			if (message.stopReason === "error" || message.stopReason === "aborted") continue;
+			if (getUsageTokenTotal(message.usage) > 0) latestUsage = message.usage as AssistantUsage;
+		}
 	}
 	return latestUsage;
 }
 
 function readBranchEntries(ctx: any): any[] {
 	try {
-		const entries = ctx?.sessionManager?.getBranch?.();
-		return Array.isArray(entries) ? entries : [];
+		const branch = ctx?.sessionManager?.getBranch?.();
+		if (Array.isArray(branch) && branch.length > 0) return branch;
+		const entries = ctx?.sessionManager?.getEntries?.();
+		if (Array.isArray(entries) && entries.length > 0) return entries;
+		const sessionEntries =
+			ctx?.session?.sessionManager?.getBranch?.() ?? ctx?.session?.sessionManager?.getEntries?.();
+		if (Array.isArray(sessionEntries) && sessionEntries.length > 0) return sessionEntries;
+		const messages = ctx?.sessionManager?.buildSessionContext?.()?.messages ?? ctx?.session?.messages;
+		if (Array.isArray(messages) && messages.length > 0) return messages;
+		return [];
 	} catch {
 		return [];
 	}
