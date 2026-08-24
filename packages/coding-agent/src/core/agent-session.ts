@@ -2704,7 +2704,6 @@ export class AgentSession {
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
 					bash: { commandPrefix: shellCommandPrefix, shellPath },
-					emitEvent: (event) => this._handleAgentEvent(event),
 				});
 
 		this._baseToolDefinitions = new Map(

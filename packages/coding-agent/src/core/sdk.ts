@@ -7,6 +7,7 @@ import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
+import { applyContextEnhancements } from "./extensions/pi-extension-enhance.ts";
 import { convertToLlm } from "./messages.ts";
 import { findInitialModel } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
@@ -321,18 +322,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			const websocketConnectTimeoutMs =
 				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
 			const headerRunner = extensionRunnerRef.current;
-			let llmContext = context;
-			if (headerRunner) {
-				const enhanced = await headerRunner.emitContextEnhancements({
-					systemPrompt: context.systemPrompt,
-					tools: context.tools,
-				});
-				llmContext = {
-					...context,
-					...(enhanced.systemPrompt !== undefined ? { systemPrompt: enhanced.systemPrompt } : {}),
-					...(enhanced.tools !== undefined ? { tools: enhanced.tools } : {}),
-				};
-			}
+			const llmContext = headerRunner ? await applyContextEnhancements(headerRunner, context) : context;
 			return modelRuntime.streamSimple(model, llmContext, {
 				...options,
 				timeoutMs,

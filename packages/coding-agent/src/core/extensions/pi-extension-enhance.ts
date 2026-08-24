@@ -438,3 +438,26 @@ export function mergeExtensionTools(baseTools: Record<string, any>, registeredTo
 	}
 	return { ...baseTools, ...extTools };
 }
+
+/**
+ * Helper to apply context enhancements in 1 concise line for SDK stream wrapper.
+ */
+export async function applyContextEnhancements<T extends { systemPrompt?: string; tools?: any[] }>(
+	headerRunner: {
+		emitContextEnhancements: (options: {
+			systemPrompt?: string;
+			tools?: any[];
+		}) => Promise<{ systemPrompt?: string; tools?: any[] }>;
+	},
+	context: T,
+): Promise<T> {
+	const enhanced = await headerRunner.emitContextEnhancements({
+		systemPrompt: context.systemPrompt,
+		tools: context.tools,
+	});
+	return {
+		...context,
+		...(enhanced.systemPrompt !== undefined ? { systemPrompt: enhanced.systemPrompt } : {}),
+		...(enhanced.tools !== undefined ? { tools: enhanced.tools } : {}),
+	};
+}

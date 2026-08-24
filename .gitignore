@@ -44,4 +44,3 @@ plans/
 collect.sh
 plan/archive/
 .codegraph/
-package-lock.json
