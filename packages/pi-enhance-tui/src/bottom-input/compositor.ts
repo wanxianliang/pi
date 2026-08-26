@@ -1,8 +1,8 @@
-import { isKeyRelease, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, isKeyRelease, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { sanitizeTerminalText } from "./sanitize.ts";
-import { matchesConfiguredShortcut } from "./shortcuts.ts";
+import { isCopyShortcutInput, matchesConfiguredShortcut } from "./shortcuts.ts";
 import type { FixedEditorCluster, FixedEditorClusterInput } from "./types.ts";
-export const FIXED_EDITOR_CURSOR_MARKER = "\x1b_pi:cursor\x07";
+export const FIXED_EDITOR_CURSOR_MARKER = CURSOR_MARKER;
 
 type ProcessWithExit = Pick<typeof process, "once" | "removeListener">;
 
@@ -273,23 +273,28 @@ function normalizeLines(lines: readonly string[] | undefined, width: number): Cl
 
 function sanitizeClusterLine(line: string): string {
 	const placeholder = "\uE000ALPS_CURSOR\uE000";
-	const withPlaceholder = String(line).split(FIXED_EDITOR_CURSOR_MARKER).join(placeholder);
+	const withPlaceholder = String(line)
+		.split(CURSOR_MARKER)
+		.join(placeholder)
+		.split("\x1b_pi:cursor\x07")
+		.join(placeholder);
 	return sanitizeTerminalText(withPlaceholder, { allowNewline: false, allowTab: true, preserveSgr: true })
 		.split(placeholder)
-		.join(FIXED_EDITOR_CURSOR_MARKER);
+		.join(CURSOR_MARKER);
 }
 
 function extractCursorMarker(line: string): ClusterLine {
 	let cleanedLine = line;
 	let cursorCol: number | undefined;
-	let markerIndex = cleanedLine.indexOf(FIXED_EDITOR_CURSOR_MARKER);
-	while (markerIndex !== -1) {
-		if (cursorCol === undefined) {
-			cursorCol = visibleWidth(cleanedLine.slice(0, markerIndex));
+	for (const marker of [CURSOR_MARKER, "\x1b_pi:cursor\x07"]) {
+		let markerIndex = cleanedLine.indexOf(marker);
+		while (markerIndex !== -1) {
+			if (cursorCol === undefined) {
+				cursorCol = visibleWidth(cleanedLine.slice(0, markerIndex));
+			}
+			cleanedLine = cleanedLine.slice(0, markerIndex) + cleanedLine.slice(markerIndex + marker.length);
+			markerIndex = cleanedLine.indexOf(marker, markerIndex);
 		}
-		cleanedLine =
-			cleanedLine.slice(0, markerIndex) + cleanedLine.slice(markerIndex + FIXED_EDITOR_CURSOR_MARKER.length);
-		markerIndex = cleanedLine.indexOf(FIXED_EDITOR_CURSOR_MARKER, markerIndex);
 	}
 	return cursorCol === undefined ? { line: cleanedLine } : { line: cleanedLine, cursorCol };
 }
@@ -1513,21 +1518,7 @@ function normalizeCluster(cluster: FixedEditorCluster, width: number, terminalRo
 }
 
 function isCopyCommandInput(data: string): boolean {
-	if (isKeyRelease(data)) return false;
-	if (
-		matchesKey(data, "super+c") ||
-		matchesKey(data, "ctrl+c") ||
-		matchesKey(data, "ctrl+shift+c") ||
-		matchesKey(data, "super+shift+c") ||
-		matchesKey(data, "ctrl+alt+c") ||
-		matchesKey(data, "alt+c")
-	) {
-		return true;
-	}
-	if (data === "\x03" || data === "\x1b\x03" || data === "\x1bc" || data === "\x1bC") {
-		return true;
-	}
-	return /^\x1b\[(?:99|67);(?:3|5|6|9|10)(?::[12])?u$/.test(data) || /^\x1b\[27;(?:3|5|6|9|10);(?:99|67)~$/.test(data);
+	return isCopyShortcutInput(data);
 }
 
 function stripAnsi(input: string): string {

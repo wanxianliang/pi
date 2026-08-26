@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import {
 	cacheHitRatioFromUsage,
 	copyToSystemClipboard,
@@ -7,9 +8,11 @@ import {
 	createBottomInputRuntime,
 	getUsageTokenTotal,
 	isAssistantUsage,
+	isSelectAllShortcutInput,
 	registerPiUiCustomExtension,
 	renderBeautifiedEditorFrame,
 	renderDetailedTokenStatus,
+	renderFixedEditorCluster,
 	renderFrameStatus,
 	resolveBottomInputShortcuts,
 	sanitizeTerminalSingleLineText,
@@ -342,4 +345,119 @@ test("bottom editor positions cursor and selects accurately on word-wrapped line
 	editor.finishSelection();
 	assert.equal(editor.hasSelectionRange(), true);
 	assert.ok(editor.getSelectedText().length > 0);
+});
+
+test("isSelectAllShortcutInput recognizes various Cmd+A and Ctrl+A sequences", () => {
+	assert.equal(isSelectAllShortcutInput("\x01"), true);
+	assert.equal(isSelectAllShortcutInput("\x1b[97;9u"), true);
+	assert.equal(isSelectAllShortcutInput("\x1b[97;9:1u"), true);
+	assert.equal(isSelectAllShortcutInput("\x1b[65;9u"), true);
+	assert.equal(isSelectAllShortcutInput("\x1b[27;9;97~"), true);
+	assert.equal(isSelectAllShortcutInput("\x1b[27;9;65~"), true);
+	assert.equal(isSelectAllShortcutInput("\x1b[97;5u"), true);
+	assert.equal(isSelectAllShortcutInput("a"), false);
+});
+
+test("bottom editor handleInput with Cmd+A selects all content", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("first line\nsecond line");
+
+	// Trigger Cmd+A via Kitty sequence
+	editor.handleInput("\x1b[97;9u");
+	assert.equal(editor.hasSelectionRange(), true);
+	assert.equal(editor.getSelectedText(), "first line\nsecond line");
+
+	// Clear and trigger via raw Ctrl+A byte
+	editor.clearSelection();
+	assert.equal(editor.hasSelectionRange(), false);
+	editor.handleInput("\x01");
+	assert.equal(editor.hasSelectionRange(), true);
+	assert.equal(editor.getSelectedText(), "first line\nsecond line");
+});
+
+test("bottom editor cursor blinking toggles and resets on interaction", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("hello");
+
+	assert.equal(editor.isCursorBlinkVisible(), true);
+
+	// Simulate elapsed time past blink threshold
+	editor.lastInteractionTime = Date.now() - 600;
+	assert.equal(editor.isCursorBlinkVisible(), false);
+
+	// Reset blink on interaction
+	editor.resetCursorBlink();
+	assert.equal(editor.isCursorBlinkVisible(), true);
+
+	editor.dispose?.();
+});
+
+test("renderFixedEditorCluster extracts cursor marker and calculates hardware cursor accurately", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("abcdef");
+	editor.setCursorFromClick(0, 2);
+
+	const rendered = editor.render(80);
+	assert.ok(rendered.some((line: string) => line.includes(CURSOR_MARKER)));
+
+	const cluster = renderFixedEditorCluster({
+		editorLines: rendered,
+		width: 80,
+		maxHeight: 10,
+	});
+
+	assert.ok(cluster.cursor !== undefined);
+	assert.equal(cluster.cursor?.row, 1);
+	// Row 1 is: │ + space + ab + cursor (col = 1 + 1 + 2 = 4)
+	assert.equal(cluster.cursor?.col, 4);
+
+	editor.dispose?.();
+});
+
+test("bottom editor renders beam cursor in front of clicked character", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("abcdef");
+
+	// Click at character 'a' (index 0)
+	editor.setCursorFromClick(0, 0);
+	let rendered = editor.render(80);
+	// Rendered line should have beam ▎ followed by 'abcdef'
+	assert.ok(rendered[1].includes("▎\x1b[0mabcdef"));
+
+	// Click at character 'c' (index 2)
+	editor.setCursorFromClick(0, 2);
+	rendered = editor.render(80);
+	// Rendered line should have 'ab' followed by beam ▎ and 'cdef'
+	assert.ok(rendered[1].includes("ab"));
+	assert.ok(rendered[1].includes("▎\x1b[0mcdef"));
+
+	editor.dispose?.();
 });

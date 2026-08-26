@@ -193,6 +193,60 @@ export function isStashShortcutInput(data: string, shortcut = DEFAULT_BOTTOM_INP
 	);
 }
 
+export function isSelectAllShortcutInput(data: string): boolean {
+	if (isKeyRelease(data)) return false;
+	if (
+		matchesKey(data, "ctrl+a") ||
+		matchesKey(data, "super+a") ||
+		matchesKey(data, "super+shift+a") ||
+		matchesKey(data, "ctrl+shift+a")
+	) {
+		return true;
+	}
+	if (data === "\x01" || data === "\x1b\x01") {
+		return true;
+	}
+	return /^\x1b\[(?:97|65);(?:3|5|6|9|10)(?::[12])?u$/.test(data) || /^\x1b\[27;(?:3|5|6|9|10);(?:97|65)~$/.test(data);
+}
+
+export function isCopyShortcutInput(data: string): boolean {
+	if (isKeyRelease(data)) return false;
+	if (
+		matchesKey(data, "super+c") ||
+		matchesKey(data, "ctrl+c") ||
+		matchesKey(data, "ctrl+shift+c") ||
+		matchesKey(data, "super+shift+c") ||
+		matchesKey(data, "ctrl+alt+c") ||
+		matchesKey(data, "alt+c")
+	) {
+		return true;
+	}
+	if (data === "\x03" || data === "\x1b\x03" || data === "\x1bc" || data === "\x1bC") {
+		return true;
+	}
+	return /^\x1b\[(?:99|67);(?:3|5|6|9|10)(?::[12])?u$/.test(data) || /^\x1b\[27;(?:3|5|6|9|10);(?:99|67)~$/.test(data);
+}
+
+export function isCutShortcutInput(data: string): boolean {
+	if (isKeyRelease(data)) return false;
+	if (
+		matchesKey(data, "super+x") ||
+		matchesKey(data, "ctrl+x") ||
+		matchesKey(data, "ctrl+shift+x") ||
+		matchesKey(data, "super+shift+x") ||
+		matchesKey(data, "ctrl+alt+x") ||
+		matchesKey(data, "alt+x")
+	) {
+		return true;
+	}
+	if (data === "\x18" || data === "\x1b\x18" || data === "\x1bx" || data === "\x1bX") {
+		return true;
+	}
+	return (
+		/^\x1b\[(?:120|88);(?:3|5|6|9|10)(?::[12])?u$/.test(data) || /^\x1b\[27;(?:3|5|6|9|10);(?:120|88)~$/.test(data)
+	);
+}
+
 export function normalizeShortcut(shortcut: string): string {
 	const parts = shortcut
 		.trim()

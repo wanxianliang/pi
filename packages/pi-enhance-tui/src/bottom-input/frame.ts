@@ -2,6 +2,7 @@ import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth, wordW
 import { copyToSystemClipboard } from "../clipboard.ts";
 import { PALETTE } from "../ui/theme.ts";
 import { sanitizeTerminalText } from "./sanitize.ts";
+import { isCopyShortcutInput, isCutShortcutInput, isSelectAllShortcutInput } from "./shortcuts.ts";
 import type { BeautifiedEditorFrameInput, BottomInputEditorState, BottomInputFrameStatus, ThemeLike } from "./types.ts";
 
 export const FIXED_EDITOR_CURSOR_MARKER = CURSOR_MARKER;
@@ -382,10 +383,8 @@ export function highlightVisualLineSelection(
 		const before = text.slice(0, cursorPosOnVL);
 		const after = text.slice(cursorPosOnVL);
 		if (after.length > 0) {
-			const graphemes = [...segmenter.segment(after)];
-			const g = graphemes[0]?.segment || "";
-			const styledG = showBlink ? PALETTE.cursorUnderline(g) : g;
-			return `${before}${CURSOR_MARKER}${styledG}${after.slice(g.length)}`;
+			const cursorBeam = showBlink ? PALETTE.cursor("▎") : "\x1b[38;2;60;75;90m▎\x1b[0m";
+			return `${before}${CURSOR_MARKER}${cursorBeam}${after}`;
 		}
 		const cursorChar = showBlink ? PALETTE.cursor("▎") : " ";
 		return `${before}${CURSOR_MARKER}${cursorChar}`;
@@ -424,17 +423,40 @@ export class EnhancedEditorBase extends Editor {
 	public selection: EditorTextSelection | null = null;
 	public isDraggingSelection = false;
 	private lastInteractionTime = Date.now();
+	private blinkTimer: ReturnType<typeof setInterval> | null = null;
 
 	public isCursorBlinkVisible(): boolean {
 		const now = Date.now();
 		const diff = now - this.lastInteractionTime;
-		if (diff < 530) return true;
-		return Math.floor(diff / 530) % 2 === 0;
+		if (diff < 500) return true;
+		return Math.floor(diff / 500) % 2 === 0;
 	}
 
 	public resetCursorBlink(): void {
 		this.lastInteractionTime = Date.now();
 	}
+
+	public startBlinkTimer(): void {
+		if (this.blinkTimer) return;
+		this.blinkTimer = setInterval(() => {
+			if (this.tui && typeof this.tui.requestRender === "function") {
+				this.tui.requestRender();
+			}
+		}, 500);
+		this.blinkTimer.unref?.();
+	}
+
+	public stopBlinkTimer(): void {
+		if (this.blinkTimer) {
+			clearInterval(this.blinkTimer);
+			this.blinkTimer = null;
+		}
+	}
+
+	public dispose(): void {
+		this.stopBlinkTimer();
+	}
+
 	constructor(tui: any, editorTheme: ThemeLike, keybindings: any, stateRef: BottomInputEditorState) {
 		const safeTheme = {
 			borderColor: (s: string) => s,
@@ -448,6 +470,7 @@ export class EnhancedEditorBase extends Editor {
 		this.borderColor = safeTheme.borderColor;
 		this.keybindings = keybindings;
 		this.stateRef = stateRef;
+		this.startBlinkTimer();
 	}
 
 	onAction(action: string, handler: () => void): void {
@@ -650,12 +673,12 @@ export class EnhancedEditorBase extends Editor {
 			return;
 		}
 
-		if (matchesKey(data, "ctrl+a") || matchesKey(data, "super+a")) {
+		if (isSelectAllShortcutInput(data)) {
 			this.selectAll();
 			return;
 		}
 
-		if (matchesKey(data, "ctrl+c") || matchesKey(data, "super+c")) {
+		if (isCopyShortcutInput(data)) {
 			if (this.hasSelectionRange()) {
 				const text = this.getSelectedText();
 				void copyToSystemClipboard(text);
@@ -663,7 +686,7 @@ export class EnhancedEditorBase extends Editor {
 			}
 		}
 
-		if (matchesKey(data, "ctrl+x") || matchesKey(data, "super+x")) {
+		if (isCutShortcutInput(data)) {
 			if (this.hasSelectionRange()) {
 				const text = this.getSelectedText();
 				void copyToSystemClipboard(text);
@@ -786,6 +809,7 @@ export class EnhancedEditorBase extends Editor {
 		const cursor = {
 			line: (this as any).state.cursorLine,
 			col: (this as any).state.cursorCol,
+			visible: this.isCursorBlinkVisible(),
 		};
 		const { editorLines, popupLines } = splitNativeEditorRender(base);
 		const styledEditorLines = editorLines.map((_line, idx) => {
