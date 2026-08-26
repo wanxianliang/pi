@@ -25,6 +25,8 @@ export const PALETTE = {
 	badgeUser: (s: string) => `\x1b[38;2;125;207;255m${s}\x1b[0m`,
 	badgeThinking: (s: string) => `\x1b[38;2;187;154;247m${s}\x1b[0m`,
 	badgeAssistant: (s: string) => `\x1b[38;2;122;162;247m${s}\x1b[0m`,
+	cursor: (s: string) => `\x1b[1;38;2;125;207;255m${s}\x1b[0m`, // Bright Cyan beam
+	cursorUnderline: (s: string) => `\x1b[4;1;38;2;125;207;255m${s}\x1b[0m`,
 };
 
 export const BORDER_CHARS = {

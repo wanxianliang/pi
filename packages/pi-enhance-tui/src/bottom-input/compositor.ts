@@ -25,6 +25,10 @@ export type FixedBottomEditorCompositorOptions = {
 	onCopySelection?: (text: string) => void;
 	decorateCopyText?: (text: string) => string;
 	processLike?: ProcessWithExit;
+	onEditorClick?: (visualRow: number, visualCol: number, clickType: "single" | "double" | "triple") => void;
+	onEditorDrag?: (visualRow: number, visualCol: number) => void;
+	onEditorRelease?: () => void;
+	isBeautifiedEditor?: () => boolean;
 };
 
 type TerminalWrite = (data: string) => void;
@@ -198,11 +202,30 @@ export function renderFixedEditorCluster(input: FixedEditorClusterInput): FixedE
 		return { lines: [] };
 	}
 
-	const visibleLines = limitClusterHeight(sections, maxHeight);
+	const editor = capEditorLines(sections.editor, maxHeight);
+	let remaining = maxHeight - editor.length;
+
+	const top = takeTail(sections.top, remaining);
+	remaining -= top.length;
+
+	const secondary = takeTail(sections.secondary, remaining);
+	remaining -= secondary.length;
+
+	const lastPrompt = takeTail(sections.lastPrompt, remaining);
+	remaining -= lastPrompt.length;
+
+	const status = takeTail(sections.status, remaining);
+
+	const visibleLines = [...status, ...top, ...editor, ...secondary, ...lastPrompt];
 	const lines = visibleLines.map((line) => line.line);
 	const cursorRow = findCursorLineIndex(visibleLines);
+
+	const editorStartIndex = status.length + top.length;
+	const editorCount = editor.length;
+	const editorBounds = editorCount > 0 ? { start: editorStartIndex, count: editorCount } : undefined;
+
 	if (cursorRow === -1) {
-		return { lines };
+		return { lines, editorBounds };
 	}
 
 	return {
@@ -211,6 +234,7 @@ export function renderFixedEditorCluster(input: FixedEditorClusterInput): FixedE
 			row: cursorRow,
 			col: visibleLines[cursorRow]!.cursorCol!,
 		},
+		editorBounds,
 	};
 }
 
@@ -274,24 +298,6 @@ function truncateVisibleLine(line: string, width: number): string {
 	return visibleWidth(line) <= width ? line : truncateToWidth(line, width, "", false);
 }
 
-function limitClusterHeight(sections: ClusterSections, maxHeight: number): ClusterLine[] {
-	const editor = capEditorLines(sections.editor, maxHeight);
-	let remaining = maxHeight - editor.length;
-
-	const top = takeTail(sections.top, remaining);
-	remaining -= top.length;
-
-	const secondary = takeTail(sections.secondary, remaining);
-	remaining -= secondary.length;
-
-	const lastPrompt = takeTail(sections.lastPrompt, remaining);
-	remaining -= lastPrompt.length;
-
-	const status = takeTail(sections.status, remaining);
-
-	return [...status, ...top, ...editor, ...secondary, ...lastPrompt];
-}
-
 function capEditorLines(lines: ClusterLine[], count: number): ClusterLine[] {
 	if (count <= 0) return [];
 	if (lines.length <= count) return lines;
@@ -328,6 +334,18 @@ export class FixedBottomEditorCompositor {
 	private readonly onCopySelection: ((text: string) => void) | null;
 	private readonly decorateCopyText: ((text: string) => string) | null;
 	private readonly processLike: ProcessWithExit;
+	private readonly onEditorClick?: (
+		visualRow: number,
+		visualCol: number,
+		clickType: "single" | "double" | "triple",
+	) => void;
+	private readonly onEditorDrag?: (visualRow: number, visualCol: number) => void;
+	private readonly onEditorRelease?: () => void;
+	private readonly isBeautifiedEditor?: () => boolean;
+	private lastEditorClick: { row: number; col: number; at: number } | null = null;
+	private editorClickCount = 0;
+	private editorDragging = false;
+	private lastCluster: FixedEditorCluster | null = null;
 	private readonly patchedRenders: RenderPatch[] = [];
 	private originalWrite: TerminalWrite | null = null;
 	private originalRender: TuiRender | null = null;
@@ -375,6 +393,10 @@ export class FixedBottomEditorCompositor {
 		this.onCopySelection = options.onCopySelection ?? null;
 		this.decorateCopyText = options.decorateCopyText ?? null;
 		this.processLike = options.processLike ?? process;
+		this.onEditorClick = options.onEditorClick;
+		this.onEditorDrag = options.onEditorDrag;
+		this.onEditorRelease = options.onEditorRelease;
+		this.isBeautifiedEditor = options.isBeautifiedEditor;
 	}
 
 	install(): void {
@@ -736,6 +758,8 @@ export class FixedBottomEditorCompositor {
 		try {
 			const rendered = this.renderCluster(width, terminalRows) ?? { lines: [] };
 			const cluster = normalizeCluster(rendered, width, terminalRows);
+			cluster.editorBounds = rendered.editorBounds;
+			this.lastCluster = cluster;
 			this.visibleClusterLines = cluster.lines;
 			return cluster;
 		} finally {
@@ -865,11 +889,96 @@ export class FixedBottomEditorCompositor {
 		this.pendingWheelDelta = 0;
 	}
 
+	private getEditorCoordinatesForPacket(
+		packet: SgrMousePacket,
+		clampIfDragging = false,
+	): { visualRow: number; visualCol: number } | null {
+		const rawRows = this.getRawRows();
+		const width = this.getTerminalWidth();
+		const cluster = this.lastCluster ?? this.getCluster(width, rawRows);
+		if (cluster.lines.length === 0 || !cluster.editorBounds) return null;
+
+		const startRow = Math.max(1, rawRows - cluster.lines.length + 1);
+		const { start: editorStart, count: editorCount } = cluster.editorBounds;
+		const isBeautified = this.isBeautifiedEditor?.() ?? true;
+		const maxContentRows = isBeautified ? Math.max(1, editorCount - 2) : Math.max(1, editorCount);
+
+		if (clampIfDragging && this.editorDragging) {
+			let visualRow = 0;
+			let visualCol = 0;
+
+			if (packet.row < startRow + editorStart) {
+				visualRow = 0;
+				visualCol = 0;
+			} else if (packet.row >= startRow + editorStart + editorCount) {
+				visualRow = maxContentRows - 1;
+				visualCol = Math.max(0, packet.col - 1 - (isBeautified ? 2 : 0));
+			} else {
+				const clusterLine = packet.row - startRow;
+				const editorRow = clusterLine - editorStart;
+				if (isBeautified) {
+					if (editorRow === 0) {
+						visualRow = 0;
+						visualCol = 0;
+					} else if (editorRow >= editorCount - 1) {
+						visualRow = maxContentRows - 1;
+						visualCol = Math.max(0, packet.col - 1 - 2);
+					} else {
+						visualRow = editorRow - 1;
+						visualCol = Math.max(0, packet.col - 1 - 2);
+					}
+				} else {
+					visualRow = editorRow;
+					visualCol = Math.max(0, packet.col - 1);
+				}
+			}
+
+			return { visualRow, visualCol };
+		}
+
+		if (packet.row < startRow || packet.row >= startRow + cluster.lines.length) return null;
+
+		const clusterLine = packet.row - startRow;
+		if (clusterLine < editorStart || clusterLine >= editorStart + editorCount) return null;
+
+		const editorRow = clusterLine - editorStart;
+
+		let visualRow: number;
+		let visualCol: number;
+
+		if (isBeautified) {
+			if (editorRow === 0) {
+				visualRow = 0;
+				visualCol = 0;
+			} else if (editorRow >= editorCount - 1) {
+				visualRow = Math.max(0, editorCount - 3);
+				visualCol = Math.max(0, packet.col - 1 - 2);
+			} else {
+				visualRow = editorRow - 1;
+				visualCol = Math.max(0, packet.col - 1 - 2);
+			}
+		} else {
+			visualRow = editorRow;
+			visualCol = Math.max(0, packet.col - 1);
+		}
+
+		return { visualRow, visualCol };
+	}
+
 	private handleMousePacket(packet: SgrMousePacket): void {
-		const location = this.selectionLocationForPacket(packet);
+		const editorCoords = this.getEditorCoordinatesForPacket(packet, true);
+
 		if (isRightPress(packet)) {
 			this.selectionDragging = false;
+			this.editorDragging = false;
 			this.preserveSelectionFocusOnRelease = false;
+
+			if (editorCoords && this.getEditorCoordinatesForPacket(packet, false)) {
+				this.pauseMouseReportingForContextMenu();
+				return;
+			}
+
+			const location = this.selectionLocationForPacket(packet);
 			const selectedText = this.isLocationInsideSelection(location) ? this.getSelectedText() : "";
 			if (selectedText) {
 				this.pauseMouseReportingForContextMenu();
@@ -886,15 +995,69 @@ export class FixedBottomEditorCompositor {
 		}
 
 		if (this.scrollSelectionAtViewportEdge(packet)) return;
-		if (this.selectionDragging && isMouseRelease(packet)) {
-			this.finishSelection(packet, location);
+
+		if (isMouseRelease(packet)) {
+			if (this.editorDragging) {
+				this.editorDragging = false;
+				this.onEditorRelease?.();
+				this.requestRepaint();
+				return;
+			}
+			if (this.selectionDragging) {
+				this.finishSelection(packet, this.selectionLocationForPacket(packet));
+				return;
+			}
+		}
+
+		if (this.editorDragging && isLeftDrag(packet) && editorCoords) {
+			this.onEditorDrag?.(editorCoords.visualRow, editorCoords.visualCol);
+			this.requestRepaint();
 			return;
 		}
+
+		const unconstrainedEditorCoords = this.getEditorCoordinatesForPacket(packet, false);
+		if (unconstrainedEditorCoords && isLeftPress(packet)) {
+			this.clearSelection();
+			this.selectionDragging = false;
+
+			const now = Date.now();
+			if (
+				this.lastEditorClick &&
+				now - this.lastEditorClick.at <= DOUBLE_CLICK_MS &&
+				this.lastEditorClick.row === unconstrainedEditorCoords.visualRow &&
+				Math.abs(this.lastEditorClick.col - unconstrainedEditorCoords.visualCol) <= 2
+			) {
+				this.editorClickCount = (this.editorClickCount % 3) + 1;
+			} else {
+				this.editorClickCount = 1;
+			}
+			this.lastEditorClick = {
+				row: unconstrainedEditorCoords.visualRow,
+				col: unconstrainedEditorCoords.visualCol,
+				at: now,
+			};
+
+			if (this.editorClickCount === 2) {
+				this.onEditorClick?.(unconstrainedEditorCoords.visualRow, unconstrainedEditorCoords.visualCol, "double");
+			} else if (this.editorClickCount === 3) {
+				this.onEditorClick?.(unconstrainedEditorCoords.visualRow, unconstrainedEditorCoords.visualCol, "triple");
+			} else {
+				this.onEditorClick?.(unconstrainedEditorCoords.visualRow, unconstrainedEditorCoords.visualCol, "single");
+			}
+
+			this.editorDragging = true;
+			this.requestRepaint();
+			return;
+		}
+
+		const location = this.selectionLocationForPacket(packet);
 		if (!location) return;
+
 		if (isLeftPress(packet)) {
 			this.startSelection(location);
 			return;
 		}
+
 		if (this.selectionDragging && isLeftDrag(packet) && location.area === this.selectionArea) {
 			this.lastLeftPress = null;
 			this.preserveSelectionFocusOnRelease = false;

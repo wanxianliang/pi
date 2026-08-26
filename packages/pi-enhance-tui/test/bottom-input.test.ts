@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	cacheHitRatioFromUsage,
 	copyToSystemClipboard,
+	createBottomInputEditor,
 	createBottomInputRuntime,
 	getUsageTokenTotal,
 	isAssistantUsage,
@@ -197,4 +198,148 @@ test("registerPiUiCustomExtension captures usage on message_end and turn_end", (
 	);
 	assert.ok(status !== null);
 	assert.ok(status.includes("⚡80%"));
+});
+
+test("bottom editor mouse click positions cursor accurately", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("const hello = 'world';\nconst second = 123;");
+
+	editor.setCursorFromClick(0, 6);
+	assert.equal(editor.getCursor().line, 0);
+	assert.equal(editor.getCursor().col, 6);
+
+	editor.setCursorFromClick(1, 6);
+	assert.equal(editor.getCursor().line, 1);
+	assert.equal(editor.getCursor().col, 6);
+});
+
+test("bottom editor mouse drag selection and operations", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("hello world from bottom editor");
+
+	editor.startSelection(0, 6);
+	editor.updateSelection(0, 11);
+	editor.finishSelection();
+	assert.equal(editor.hasSelectionRange(), true);
+	assert.equal(editor.getSelectedText(), "world");
+
+	// Type replacement over selection
+	editor.handleInput("everyone");
+	assert.equal(editor.getText(), "hello everyone from bottom editor");
+	assert.equal(editor.hasSelectionRange(), false);
+
+	// Double click word selection
+	editor.selectWordAt(0, 8);
+	assert.equal(editor.getSelectedText(), "everyone");
+
+	// Backspace over selection
+	editor.deleteSelection();
+	assert.equal(editor.getText(), "hello  from bottom editor");
+
+	// Select all
+	editor.selectAll();
+	assert.equal(editor.getSelectedText(), "hello  from bottom editor");
+});
+
+test("bottom editor multi-line selection and triple-click", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("line 1 foo\nline 2 bar\nline 3 baz");
+
+	// Triple click selects entire line
+	editor.selectLineAt(1);
+	assert.equal(editor.getSelectedText(), "line 2 bar");
+
+	// Multi-line selection and deletion
+	editor.startSelection(0, 7);
+	editor.updateSelection(2, 6);
+	editor.finishSelection();
+	assert.equal(editor.getSelectedText(), "foo\nline 2 bar\nline 3");
+
+	editor.deleteSelection();
+	assert.equal(editor.getText(), "line 1  baz");
+	assert.equal(editor.getCursor().line, 0);
+	assert.equal(editor.getCursor().col, 7);
+
+	// Renders frame with selection highlight when selected
+	editor.startSelection(0, 0);
+	editor.updateSelection(0, 6);
+	const rendered = editor.render(60);
+	assert.ok(rendered.some((l: string) => l.includes("\x1b[7m")));
+});
+
+test("bottom editor backward drag selection (from back to front)", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("const message = 'hello world';");
+
+	// Start dragging from index 28 backward to index 17 ('hello world')
+	editor.startSelection(0, 28);
+	editor.updateSelection(0, 17);
+	editor.finishSelection();
+
+	assert.equal(editor.hasSelectionRange(), true);
+	assert.equal(editor.getSelectedText(), "hello world");
+	assert.equal(editor.getCursor().col, 17);
+
+	// Render backward selection: should cleanly highlight without corrupted ANSI
+	const rendered = editor.render(60);
+	assert.ok(rendered.some((l: string) => l.includes("\x1b[7mhello world\x1b[27m")));
+
+	// Type over backward selection
+	editor.handleInput("hi");
+	assert.equal(editor.getText(), "const message = 'hi';");
+	assert.equal(editor.hasSelectionRange(), false);
+});
+
+test("bottom editor positions cursor and selects accurately on word-wrapped lines", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	const longLine = "This is a long sentence of text that wraps across multiple lines in the editor.";
+	editor.setText(longLine);
+	editor.render(40);
+
+	// Click on visual line 1 (the wrapped chunk of line 0)
+	editor.setCursorFromClick(1, 0);
+	assert.equal(editor.getCursor().line, 0);
+	assert.ok(editor.getCursor().col > 0);
+
+	// Select on wrapped line
+	editor.startSelection(1, 0);
+	editor.updateSelection(1, 10);
+	editor.finishSelection();
+	assert.equal(editor.hasSelectionRange(), true);
+	assert.ok(editor.getSelectedText().length > 0);
 });

@@ -48,40 +48,33 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 	const contentWidth = Math.max(10, innerWidth - paddingX * 2);
 
 	// 1. Determine title and badge styling
-	let statusBadge: string;
+	const statusBadge = "";
 	let cardTitleStyled: string;
 
 	if (variant === "user") {
-		cardTitleStyled = PALETTE.cyanBold("User Prompt");
-		statusBadge = "";
+		cardTitleStyled = PALETTE.cyanBold(title === "Card" ? "User Prompt" : title);
 	} else if (variant === "thinking") {
-		cardTitleStyled = PALETTE.purpleBold(`${STATUS_ICONS.thinking} Thinking`);
 		if (status === "running" || status === "pending") {
-			statusBadge = PALETTE.badgeRunning(`${spinnerFrame} Reasoning`);
+			cardTitleStyled = `${PALETTE.purpleBold("Thinking")} ${PALETTE.badgeRunning(spinnerFrame)}`;
 		} else {
-			statusBadge = PALETTE.badgeThinking("Analyzed");
+			cardTitleStyled = PALETTE.purpleBold("Thinking");
 		}
 	} else if (variant === "assistant") {
-		cardTitleStyled = PALETTE.accentBold(`${STATUS_ICONS.assistant} Pi`);
 		if (status === "running" || status === "pending") {
-			statusBadge = PALETTE.badgeRunning(`${spinnerFrame} Generating`);
+			cardTitleStyled = `${PALETTE.accentBold("Pi")} ${PALETTE.badgeRunning(spinnerFrame)}`;
 		} else {
-			statusBadge = "";
+			cardTitleStyled = PALETTE.accentBold("Pi");
 		}
 	} else {
 		// Tool variant
 		if (status === "running") {
-			statusBadge = PALETTE.badgeRunning(`${spinnerFrame} Running`);
-			cardTitleStyled = PALETTE.accentBold(`${STATUS_ICONS.code} ${title}`);
+			cardTitleStyled = `${PALETTE.accentBold(title)} ${PALETTE.badgeRunning(spinnerFrame)}`;
 		} else if (status === "pending") {
-			statusBadge = PALETTE.badgeRunning("Preparing");
-			cardTitleStyled = PALETTE.accentBold(`${STATUS_ICONS.code} ${title}`);
+			cardTitleStyled = `${PALETTE.accentBold(title)} ${PALETTE.muted("…")}`;
 		} else if (status === "error") {
-			statusBadge = PALETTE.badgeError(`${STATUS_ICONS.error} Error`);
-			cardTitleStyled = PALETTE.errorBold(`${STATUS_ICONS.error} ${title}`);
+			cardTitleStyled = `${PALETTE.accentBold(title)} ${PALETTE.errorBold(STATUS_ICONS.error)}`;
 		} else {
-			statusBadge = PALETTE.badgeSuccess(`${STATUS_ICONS.success} Done`);
-			cardTitleStyled = PALETTE.successBold(`${STATUS_ICONS.success} ${title}`);
+			cardTitleStyled = `${PALETTE.accentBold(title)} ${PALETTE.successBold(STATUS_ICONS.success)}`;
 		}
 	}
 

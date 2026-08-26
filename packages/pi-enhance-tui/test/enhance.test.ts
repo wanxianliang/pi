@@ -40,17 +40,45 @@ describe("pi-enhance-tui core suite", () => {
 		assert.ok(diffLines[0].includes("added line"));
 	});
 
-	it("renderCardBox produces unified rounded borders", () => {
+	it("renderCardBox produces unified rounded borders with concise tool title", () => {
 		const lines = renderCardBox({
-			title: "Test",
+			title: "read",
 			variant: "tool",
 			status: "success",
 			contentLines: ["content 1", "content 2"],
 			width: 60,
 		});
 		assert.ok(lines.length >= 3);
-		assert.ok(lines[0].includes("Test"));
+		assert.ok(lines[0].includes("read"));
+		assert.ok(lines[0].includes("✔"));
+		assert.ok(!lines[0].includes("Done"));
+		assert.ok(!lines[0].includes(" ── "));
 		assert.ok(lines[lines.length - 1].includes("╰"));
+
+		const errorLines = renderCardBox({
+			title: "bash",
+			variant: "tool",
+			status: "error",
+			contentLines: ["failed"],
+			width: 60,
+		});
+		assert.ok(errorLines[0].includes("bash"));
+		assert.ok(errorLines[0].includes("✖"));
+		assert.ok(!errorLines[0].includes("Error"));
+		assert.ok(!errorLines[0].includes(" ── "));
+
+		const runningLines = renderCardBox({
+			title: "edit",
+			variant: "tool",
+			status: "running",
+			spinnerFrame: "⠋",
+			contentLines: ["editing"],
+			width: 60,
+		});
+		assert.ok(runningLines[0].includes("edit"));
+		assert.ok(runningLines[0].includes("⠋"));
+		assert.ok(!runningLines[0].includes("Running"));
+		assert.ok(!runningLines[0].includes(" ── "));
 	});
 
 	it("stripCardBorders cleans border artifacts", () => {

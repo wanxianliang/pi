@@ -1,4 +1,6 @@
-import { CURSOR_MARKER, Editor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth, wordWrapLine } from "@earendil-works/pi-tui";
+import { copyToSystemClipboard } from "../clipboard.ts";
+import { PALETTE } from "../ui/theme.ts";
 import { sanitizeTerminalText } from "./sanitize.ts";
 import type { BeautifiedEditorFrameInput, BottomInputEditorState, BottomInputFrameStatus, ThemeLike } from "./types.ts";
 
@@ -298,43 +300,120 @@ export function renderBottomInputEditorLines(input: {
 	];
 }
 
-export function createBottomInputEditor(
-	tui: any,
-	theme: any,
-	keybindings: any,
-	state: BottomInputEditorState,
-	options: { CustomEditor?: new (tui: any, theme: any, keybindings: any, options?: any) => any } = {},
-): any {
-	const BaseEditor = options.CustomEditor;
-	const editorTheme = theme ?? createFallbackEditorTheme();
-	if (typeof BaseEditor === "function") {
-		class BeautifiedEditor extends BaseEditor {
-			private readonly stateRef: BottomInputEditorState;
+export interface EditorTextSelection {
+	anchor: { line: number; col: number };
+	focus: { line: number; col: number };
+}
 
-			constructor() {
-				super(tui, editorTheme, keybindings, { paddingX: 0 });
-				this.stateRef = state;
-			}
+export function compareDocPositions(a: { line: number; col: number }, b: { line: number; col: number }): number {
+	return a.line === b.line ? a.col - b.col : a.line - b.line;
+}
 
-			render(width: number): string[] {
-				if (!this.stateRef.beautifiedInputEnabled || width < MIN_FRAME_WIDTH) return super.render(width);
-				const innerWidth = Math.max(1, Math.floor(width) - 4);
-				const base = super.render(innerWidth);
-				return renderBottomInputEditorLines({
-					lines: base,
-					width,
-					theme: this.stateRef.getTheme(),
-					state: this.stateRef,
+export function getNormalizedSelectionRange(
+	selection: EditorTextSelection | null,
+): { start: { line: number; col: number }; end: { line: number; col: number } } | null {
+	if (!selection) return null;
+	const cmp = compareDocPositions(selection.anchor, selection.focus);
+	if (cmp === 0) return null;
+	const start = cmp < 0 ? { ...selection.anchor } : { ...selection.focus };
+	const end = cmp < 0 ? { ...selection.focus } : { ...selection.anchor };
+	return { start, end };
+}
+
+export function computeEditorVisualLines(
+	lines: readonly string[],
+	width: number,
+): Array<{ logicalLine: number; startCol: number; length: number; text: string }> {
+	const visualLines: Array<{ logicalLine: number; startCol: number; length: number; text: string }> = [];
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i] || "";
+		if (line.length === 0) {
+			visualLines.push({ logicalLine: i, startCol: 0, length: 0, text: "" });
+		} else if (visibleWidth(line) <= width) {
+			visualLines.push({ logicalLine: i, startCol: 0, length: line.length, text: line });
+		} else {
+			const chunks = wordWrapLine(line, width);
+			for (const chunk of chunks) {
+				visualLines.push({
+					logicalLine: i,
+					startCol: chunk.startIndex,
+					length: chunk.endIndex - chunk.startIndex,
+					text: chunk.text,
 				});
 			}
 		}
-		return new BeautifiedEditor();
 	}
-	return new FallbackBeautifiedInputEditor(tui, editorTheme, keybindings, state);
+	return visualLines;
 }
 
-class FallbackBeautifiedInputEditor extends Editor {
-	private readonly stateRef: BottomInputEditorState;
+export function highlightVisualLineSelection(
+	text: string,
+	startCol: number,
+	length: number,
+	logicalLine: number,
+	range: { start: { line: number; col: number }; end: { line: number; col: number } } | null,
+	cursor?: { line: number; col: number; visible?: boolean },
+): string {
+	const lineStartCol =
+		range && logicalLine >= range.start.line && logicalLine <= range.end.line
+			? logicalLine === range.start.line
+				? Math.max(startCol, range.start.col)
+				: startCol
+			: startCol;
+	const lineEndCol =
+		range && logicalLine >= range.start.line && logicalLine <= range.end.line
+			? logicalLine === range.end.line
+				? Math.min(startCol + length, range.end.col)
+				: startCol + length
+			: startCol;
+
+	const hasSelectionOnLine = Boolean(range && lineStartCol < lineEndCol);
+	const isCursorLine = cursor && cursor.line === logicalLine;
+	const isCursorOnVL = Boolean(
+		isCursorLine &&
+			cursor.col >= startCol &&
+			(cursor.col < startCol + length || (startCol + length === text.length && cursor.col === startCol + length)),
+	);
+	const cursorPosOnVL = isCursorOnVL ? cursor!.col - startCol : -1;
+	const showBlink = cursor ? cursor.visible !== false : true;
+
+	if (!hasSelectionOnLine) {
+		if (!isCursorOnVL) return text;
+		const before = text.slice(0, cursorPosOnVL);
+		const after = text.slice(cursorPosOnVL);
+		if (after.length > 0) {
+			const graphemes = [...segmenter.segment(after)];
+			const g = graphemes[0]?.segment || "";
+			const styledG = showBlink ? PALETTE.cursorUnderline(g) : g;
+			return `${before}${CURSOR_MARKER}${styledG}${after.slice(g.length)}`;
+		}
+		const cursorChar = showBlink ? PALETTE.cursor("▎") : " ";
+		return `${before}${CURSOR_MARKER}${cursorChar}`;
+	}
+
+	const selStart = lineStartCol - startCol;
+	const selEnd = lineEndCol - startCol;
+
+	const beforeSel = text.slice(0, selStart);
+	const selectedText = text.slice(selStart, selEnd);
+	const afterSel = text.slice(selEnd);
+
+	if (!isCursorOnVL) {
+		return `${beforeSel}\x1b[7m${selectedText}\x1b[27m${afterSel}`;
+	}
+
+	if (cursorPosOnVL <= selStart) {
+		return `${beforeSel}${CURSOR_MARKER}\x1b[7m${selectedText}\x1b[27m${afterSel}`;
+	}
+	if (cursorPosOnVL >= selEnd) {
+		return `${beforeSel}\x1b[7m${selectedText}\x1b[27m${CURSOR_MARKER}${afterSel}`;
+	}
+	const cOff = cursorPosOnVL - selStart;
+	return `${beforeSel}\x1b[7m${selectedText.slice(0, cOff)}${CURSOR_MARKER}${selectedText.slice(cOff)}\x1b[27m${afterSel}`;
+}
+
+export class EnhancedEditorBase extends Editor {
+	public stateRef: BottomInputEditorState;
 	public keybindings?: any;
 	public actionHandlers: Map<string, () => void> = new Map();
 	public onEscape?: () => void;
@@ -342,8 +421,31 @@ class FallbackBeautifiedInputEditor extends Editor {
 	public onPasteImage?: () => void;
 	public onExtensionShortcut?: (data: string) => boolean;
 
+	public selection: EditorTextSelection | null = null;
+	public isDraggingSelection = false;
+	private lastInteractionTime = Date.now();
+
+	public isCursorBlinkVisible(): boolean {
+		const now = Date.now();
+		const diff = now - this.lastInteractionTime;
+		if (diff < 530) return true;
+		return Math.floor(diff / 530) % 2 === 0;
+	}
+
+	public resetCursorBlink(): void {
+		this.lastInteractionTime = Date.now();
+	}
 	constructor(tui: any, editorTheme: ThemeLike, keybindings: any, stateRef: BottomInputEditorState) {
-		super(tui, editorTheme as any, { paddingX: 0 });
+		const safeTheme = {
+			borderColor: (s: string) => s,
+			selectList: {},
+			...(editorTheme as any),
+		};
+		if (typeof (editorTheme as any)?.borderColor !== "function") {
+			safeTheme.borderColor = (s: string) => s;
+		}
+		super(tui, safeTheme as any, { paddingX: 0 });
+		this.borderColor = safeTheme.borderColor;
 		this.keybindings = keybindings;
 		this.stateRef = stateRef;
 	}
@@ -352,9 +454,274 @@ class FallbackBeautifiedInputEditor extends Editor {
 		this.actionHandlers.set(action, handler);
 	}
 
+	getNormalizedRange(): { start: { line: number; col: number }; end: { line: number; col: number } } | null {
+		return getNormalizedSelectionRange(this.selection);
+	}
+
+	hasSelectionRange(): boolean {
+		return this.getNormalizedRange() !== null;
+	}
+
+	clearSelection(): void {
+		this.selection = null;
+		this.isDraggingSelection = false;
+	}
+
+	setCursorFromClick(visualRow: number, visualCol: number): void {
+		this.resetCursorBlink();
+		const pos = this.mapVisualPosToLogicalPos(visualRow, visualCol);
+		(this as any).state.cursorLine = pos.line;
+		this.setCursorColumn(pos.col);
+		(this as any).preferredVisualCol = null;
+		(this as any).snappedFromCursorCol = null;
+		this.clearSelection();
+		this.tui.requestRender();
+	}
+
+	startSelection(visualRow: number, visualCol: number): void {
+		this.resetCursorBlink();
+		const pos = this.mapVisualPosToLogicalPos(visualRow, visualCol);
+		(this as any).state.cursorLine = pos.line;
+		this.setCursorColumn(pos.col);
+		this.selection = { anchor: { ...pos }, focus: { ...pos } };
+		this.isDraggingSelection = true;
+		this.tui.requestRender();
+	}
+
+	updateSelection(visualRow: number, visualCol: number): void {
+		this.resetCursorBlink();
+		const pos = this.mapVisualPosToLogicalPos(visualRow, visualCol);
+		(this as any).state.cursorLine = pos.line;
+		this.setCursorColumn(pos.col);
+		if (this.selection) {
+			this.selection.focus = { ...pos };
+		} else {
+			this.selection = { anchor: { ...pos }, focus: { ...pos } };
+		}
+		this.tui.requestRender();
+	}
+
+	finishSelection(): void {
+		this.isDraggingSelection = false;
+		if (
+			this.selection &&
+			this.selection.anchor.line === this.selection.focus.line &&
+			this.selection.anchor.col === this.selection.focus.col
+		) {
+			this.selection = null;
+		}
+		this.tui.requestRender();
+	}
+
+	selectWordAt(visualRow: number, visualCol: number): void {
+		const pos = this.mapVisualPosToLogicalPos(visualRow, visualCol);
+		const lines = (this as any).state.lines;
+		const line = lines[pos.line] || "";
+		if (line.length === 0) return;
+
+		let startCol = Math.min(pos.col, line.length);
+		let endCol = startCol;
+
+		const isWordChar = (ch: string) => /[\p{L}\p{N}_]/u.test(ch);
+		const charAt = line[startCol] || line[startCol - 1] || "";
+		const testFn = isWordChar(charAt) ? isWordChar : (ch: string) => !/\s/.test(ch);
+
+		while (startCol > 0 && testFn(line[startCol - 1]!)) {
+			startCol--;
+		}
+		while (endCol < line.length && testFn(line[endCol]!)) {
+			endCol++;
+		}
+
+		if (startCol < endCol) {
+			this.selection = {
+				anchor: { line: pos.line, col: startCol },
+				focus: { line: pos.line, col: endCol },
+			};
+			(this as any).state.cursorLine = pos.line;
+			this.setCursorColumn(endCol);
+			this.tui.requestRender();
+		}
+	}
+
+	selectLineAt(visualRow: number): void {
+		const pos = this.mapVisualPosToLogicalPos(visualRow, 0);
+		const lines = (this as any).state.lines;
+		const line = lines[pos.line] || "";
+		this.selection = {
+			anchor: { line: pos.line, col: 0 },
+			focus: { line: pos.line, col: line.length },
+		};
+		(this as any).state.cursorLine = pos.line;
+		this.setCursorColumn(line.length);
+		this.tui.requestRender();
+	}
+
+	selectAll(): void {
+		const lines = (this as any).state.lines;
+		if (lines.length === 0) return;
+		const lastL = lines.length - 1;
+		const lastLine = lines[lastL] || "";
+		this.selection = {
+			anchor: { line: 0, col: 0 },
+			focus: { line: lastL, col: lastLine.length },
+		};
+		(this as any).state.cursorLine = lastL;
+		this.setCursorColumn(lastLine.length);
+		this.tui.requestRender();
+	}
+
+	getSelectedText(): string {
+		const range = this.getNormalizedRange();
+		if (!range) return "";
+		const lines = (this as any).state.lines;
+		const { start, end } = range;
+		if (start.line === end.line) {
+			const line = lines[start.line] || "";
+			return line.slice(start.col, end.col);
+		}
+		const parts: string[] = [];
+		for (let l = start.line; l <= end.line; l++) {
+			const line = lines[l] || "";
+			if (l === start.line) parts.push(line.slice(start.col));
+			else if (l === end.line) parts.push(line.slice(0, end.col));
+			else parts.push(line);
+		}
+		return parts.join("\n");
+	}
+
+	deleteSelection(): boolean {
+		const range = this.getNormalizedRange();
+		if (!range) return false;
+		(this as any).pushUndoSnapshot?.();
+		const lines = (this as any).state.lines;
+		const { start, end } = range;
+		if (start.line === end.line) {
+			const line = lines[start.line] || "";
+			lines[start.line] = line.slice(0, start.col) + line.slice(end.col);
+		} else {
+			const firstLine = lines[start.line] || "";
+			const lastLine = lines[end.line] || "";
+			const merged = firstLine.slice(0, start.col) + lastLine.slice(end.col);
+			(this as any).state.lines = [...lines.slice(0, start.line), merged, ...lines.slice(end.line + 1)];
+		}
+		(this as any).state.cursorLine = start.line;
+		this.setCursorColumn(start.col);
+		this.clearSelection();
+		this.onChange?.(this.getText());
+		this.tui.requestRender();
+		return true;
+	}
+
+	mapVisualPosToLogicalPos(visualRow: number, visualCol: number): { line: number; col: number } {
+		const lines: string[] = (this as any).state.lines;
+		const width = Math.max(1, (this as any).lastWidth || 80);
+		const visualLines = computeEditorVisualLines(lines, width);
+
+		if (visualLines.length === 0) return { line: 0, col: 0 };
+		const scrollOffset = (this as any).scrollOffset || 0;
+		const targetVLIndex = Math.max(0, Math.min(scrollOffset + visualRow, visualLines.length - 1));
+		const vl = visualLines[targetVLIndex]!;
+		if (vl.length === 0) return { line: vl.logicalLine, col: 0 };
+
+		let accW = 0;
+		let colOff = 0;
+		for (const { segment: seg } of segmenter.segment(vl.text)) {
+			const gW = visibleWidth(seg);
+			if (accW + gW / 2 >= visualCol) break;
+			accW += gW;
+			colOff += seg.length;
+		}
+		return {
+			line: vl.logicalLine,
+			col: Math.min(vl.startCol + colOff, vl.startCol + vl.length),
+		};
+	}
+
+	private setCursorColumn(col: number): void {
+		(this as any).state.cursorCol = col;
+		(this as any).preferredVisualCol = null;
+		(this as any).snappedFromCursorCol = null;
+	}
+
 	override handleInput(data: string): void {
+		this.resetCursorBlink();
 		if (this.onExtensionShortcut?.(data)) {
 			return;
+		}
+
+		if (matchesKey(data, "ctrl+a") || matchesKey(data, "super+a")) {
+			this.selectAll();
+			return;
+		}
+
+		if (matchesKey(data, "ctrl+c") || matchesKey(data, "super+c")) {
+			if (this.hasSelectionRange()) {
+				const text = this.getSelectedText();
+				void copyToSystemClipboard(text);
+				return;
+			}
+		}
+
+		if (matchesKey(data, "ctrl+x") || matchesKey(data, "super+x")) {
+			if (this.hasSelectionRange()) {
+				const text = this.getSelectedText();
+				void copyToSystemClipboard(text);
+				this.deleteSelection();
+				return;
+			}
+		}
+
+		if (matchesKey(data, "escape")) {
+			if (this.hasSelectionRange()) {
+				this.clearSelection();
+				this.tui.requestRender();
+				return;
+			}
+		}
+
+		if (
+			matchesKey(data, "backspace") ||
+			matchesKey(data, "delete") ||
+			matchesKey(data, "shift+backspace") ||
+			matchesKey(data, "shift+delete")
+		) {
+			if (this.hasSelectionRange()) {
+				this.deleteSelection();
+				return;
+			}
+		}
+
+		if (matchesKey(data, "left") || matchesKey(data, "home")) {
+			if (this.hasSelectionRange()) {
+				const range = this.getNormalizedRange();
+				if (range) {
+					(this as any).state.cursorLine = range.start.line;
+					this.setCursorColumn(range.start.col);
+				}
+				this.clearSelection();
+				this.tui.requestRender();
+				return;
+			}
+		}
+
+		if (matchesKey(data, "right") || matchesKey(data, "end")) {
+			if (this.hasSelectionRange()) {
+				const range = this.getNormalizedRange();
+				if (range) {
+					(this as any).state.cursorLine = range.end.line;
+					this.setCursorColumn(range.end.col);
+				}
+				this.clearSelection();
+				this.tui.requestRender();
+				return;
+			}
+		}
+
+		if (matchesKey(data, "up") || matchesKey(data, "down")) {
+			if (this.hasSelectionRange()) {
+				this.clearSelection();
+			}
 		}
 
 		if (this.keybindings?.matches?.(data, "app.clipboard.pasteImage")) {
@@ -399,6 +766,12 @@ class FallbackBeautifiedInputEditor extends Editor {
 			}
 		}
 
+		if (this.hasSelectionRange()) {
+			if (data.charCodeAt(0) >= 32 || data.includes("\x1b[200~") || data === "\n" || data === "\r") {
+				this.deleteSelection();
+			}
+		}
+
 		super.handleInput(data);
 	}
 
@@ -406,13 +779,44 @@ class FallbackBeautifiedInputEditor extends Editor {
 		if (!this.stateRef.beautifiedInputEnabled || width < MIN_FRAME_WIDTH) return super.render(width);
 		const innerWidth = Math.max(1, Math.floor(width) - 4);
 		const base = super.render(innerWidth);
+		const range = this.getNormalizedRange();
+		const layoutWidth = (this as any).lastWidth || Math.max(1, innerWidth - 1);
+		const visualLines = computeEditorVisualLines(this.getLines(), layoutWidth);
+		const scrollOffset = (this as any).scrollOffset || 0;
+		const cursor = {
+			line: (this as any).state.cursorLine,
+			col: (this as any).state.cursorCol,
+		};
+		const { editorLines, popupLines } = splitNativeEditorRender(base);
+		const styledEditorLines = editorLines.map((_line, idx) => {
+			const vl = visualLines[scrollOffset + idx];
+			if (!vl) return _line;
+			return highlightVisualLineSelection(vl.text, vl.startCol, vl.length, vl.logicalLine, range, cursor);
+		});
+		const decoratedBase = isNativeEditorRule(base[0] ?? "")
+			? [base[0]!, ...styledEditorLines, ...popupLines]
+			: [...styledEditorLines, ...popupLines];
 		return renderBottomInputEditorLines({
-			lines: base,
+			lines: decoratedBase,
 			width,
 			theme: this.stateRef.getTheme(),
 			state: this.stateRef,
 		});
 	}
+}
+
+export class BeautifiedEditor extends EnhancedEditorBase {}
+export class FallbackBeautifiedInputEditor extends EnhancedEditorBase {}
+
+export function createBottomInputEditor(
+	tui: any,
+	theme: any,
+	keybindings: any,
+	state: BottomInputEditorState,
+	_options: { CustomEditor?: new (tui: any, theme: any, keybindings: any, options?: any) => any } = {},
+): any {
+	const editorTheme = theme ?? createFallbackEditorTheme();
+	return new FallbackBeautifiedInputEditor(tui, editorTheme, keybindings, state);
 }
 
 function fitPopupLines(lines: readonly string[], width: number): string[] {

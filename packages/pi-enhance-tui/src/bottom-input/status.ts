@@ -70,7 +70,7 @@ export function renderBottomInputStatus(input: BottomInputStatusState): BottomIn
 
 	return {
 		topLines: [],
-		secondaryLines: [],
+		secondaryLines: renderExtensionStatusLines(extensionStatuses, safeWidth, input.theme),
 		lastPromptLines: [],
 		frameStatus: renderFrameStatus(
 			{ ...input, width: safeWidth, icons },

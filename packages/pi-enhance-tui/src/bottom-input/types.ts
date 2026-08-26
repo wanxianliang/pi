@@ -71,6 +71,7 @@ export type FixedEditorCursor = {
 export type FixedEditorCluster = {
 	lines: string[];
 	cursor?: FixedEditorCursor;
+	editorBounds?: { start: number; count: number };
 };
 
 export type BottomInputFrameStatus = {

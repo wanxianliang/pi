@@ -56,7 +56,7 @@ const FALLBACK_EDITOR_THEME = {
 	selectList: {},
 };
 const STASH_STATUS_KEY = "pi-enhance-tui-stash";
-const STATUS_RENDER_INTERVAL_MS = 1_000;
+const STATUS_RENDER_INTERVAL_MS = 500;
 const STATUS_RENDER_DEBOUNCE_MS = 33;
 const LAYOUT_CACHE_TTL_MS = 250;
 const STREAMING_LAYOUT_CACHE_TTL_MS = 1000;
@@ -288,7 +288,10 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 	}
 
 	copyEditorText(ctx: any = this.ctx): void {
-		const selectedText = this.compositor?.getSelectedText();
+		const editor = this.editorInstance;
+		const editorSelectedText = editor?.hasSelectionRange?.() ? editor.getSelectedText?.() : "";
+		const compositorSelectedText = this.compositor?.getSelectedText();
+		const selectedText = editorSelectedText || compositorSelectedText;
 		const hasSelectedText = Boolean(selectedText && selectedText.trim().length > 0);
 		const text = hasSelectedText ? (selectedText as string) : getCurrentEditorText(ctx, this.editorInstance);
 
@@ -309,13 +312,30 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 	}
 
 	cutEditorText(ctx: any = this.ctx): void {
+		const editor = this.editorInstance;
+		const editorSelectedText = editor?.hasSelectionRange?.() ? editor.getSelectedText?.() : "";
+		if (editorSelectedText) {
+			const generation = this.generation;
+			void this.copyTextToClipboard(editorSelectedText)
+				.then(() => {
+					if (generation !== this.generation) return;
+					editor.deleteSelection?.();
+					notify(ctx, "Cut editor text", "info");
+					this.requestRender();
+				})
+				.catch(() => {
+					if (generation !== this.generation) return;
+					notify(ctx, "Cut failed", "warning");
+				});
+			return;
+		}
+
 		const text = getCurrentEditorText(ctx, this.editorInstance);
 		if (!hasNonWhitespaceText(text)) {
 			notify(ctx, "Nothing to cut", "info");
 			return;
 		}
 		const generation = this.generation;
-		const editor = this.editorInstance;
 		void this.copyTextToClipboard(text)
 			.then(() => {
 				if (generation !== this.generation) return;
@@ -569,6 +589,29 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 					up: this.shortcuts.scrollChatUp,
 					down: this.shortcuts.scrollChatDown,
 				},
+				onEditorClick: (visualRow: number, visualCol: number, clickType: "single" | "double" | "triple") => {
+					if (generation !== this.generation || !this.editorInstance) return;
+					if (clickType === "double") {
+						this.editorInstance.selectWordAt?.(visualRow, visualCol);
+					} else if (clickType === "triple") {
+						this.editorInstance.selectLineAt?.(visualRow);
+					} else {
+						this.editorInstance.setCursorFromClick?.(visualRow, visualCol);
+						this.editorInstance.startSelection?.(visualRow, visualCol);
+					}
+					this.requestRender();
+				},
+				onEditorDrag: (visualRow: number, visualCol: number) => {
+					if (generation !== this.generation || !this.editorInstance) return;
+					this.editorInstance.updateSelection?.(visualRow, visualCol);
+					this.requestRender();
+				},
+				onEditorRelease: () => {
+					if (generation !== this.generation || !this.editorInstance) return;
+					this.editorInstance.finishSelection?.();
+					this.requestRender();
+				},
+				isBeautifiedEditor: () => this.beautifiedInputEnabled,
 				renderCluster: (width, terminalRows) => this.renderCluster(compositor, containers, width, terminalRows),
 			});
 			hideRenderableIfPresent(compositor, containers.statusContainer);
