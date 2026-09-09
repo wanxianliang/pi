@@ -10,7 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCOPE="$HOME/.bun/install/global/node_modules/@earendil-works"
 
 # Local @earendil-works packages to install into the bun global scope.
-PACKAGES=(ai protocol tui pi-enhance-tui agent client coding-agent)
+PACKAGES=(chord ai protocol tui pi-enhance-tui telemetry agent client server coding-agent session-backends/sqlite-node)
 
 echo -e "${YELLOW}[1/2] Building project...${NC}"
 (cd "$ROOT" && npm run build)
@@ -20,15 +20,15 @@ mkdir -p "$SCOPE"
 for dir in "${PACKAGES[@]}"; do
 	src="$ROOT/packages/$dir"
 	if [ ! -d "$src/dist" ] || [ -z "$(ls -A "$src/dist" 2>/dev/null)" ]; then
-		echo -e "${RED}  SKIP $dir: no build output in $src/dist${NC}"
+		echo -e "${RED} SKIP $dir: no build output in $src/dist${NC}"
 		exit 1
 	fi
 	name="$(node -p "require('$src/package.json').name.split('/').pop()")"
 	version="$(node -p "require('$src/package.json').version")"
 	rm -rf "$SCOPE/$name"
-	mkdir -p "$SCOPE"
+	mkdir -p "$SCOPE/$name"
 	cp -R "$src"/. "$SCOPE/$name"/
-	echo -e "  Installed ${YELLOW}$name${NC} v$version"
+	echo -e " Installed ${YELLOW}$name${NC} v$version"
 done
 
 echo -e "${GREEN}✓ Build and bun global install completed${NC}"
