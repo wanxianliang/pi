@@ -44,3 +44,4 @@ plans/
 collect.sh
 plan/archive/
 .codegraph/
+packages/agent/docs/extensions/pi-server-artifact/index.md
