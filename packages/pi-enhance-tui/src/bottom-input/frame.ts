@@ -1,4 +1,90 @@
-import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth, wordWrapLine } from "@earendil-works/pi-tui";
+export interface TextChunk {
+	text: string;
+	startIndex: number;
+	endIndex: number;
+}
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function isWhitespaceChar(grapheme: string): boolean {
+	return /^\s+$/u.test(grapheme);
+}
+
+export function wordWrapLine(line: string, maxWidth: number): TextChunk[] {
+	if (!line || maxWidth <= 0) {
+		return [{ text: "", startIndex: 0, endIndex: 0 }];
+	}
+
+	const lineWidth = visibleWidth(line);
+	if (lineWidth <= maxWidth) {
+		return [{ text: line, startIndex: 0, endIndex: line.length }];
+	}
+
+	const chunks: TextChunk[] = [];
+	const segments = [...graphemeSegmenter.segment(line)];
+
+	let currentWidth = 0;
+	let chunkStart = 0;
+	let wrapOppIndex = -1;
+	let wrapOppWidth = 0;
+
+	for (let i = 0; i < segments.length; i++) {
+		const seg = segments[i]!;
+		const grapheme = seg.segment;
+		const gWidth = visibleWidth(grapheme);
+		const charIndex = seg.index;
+		const isWs = isWhitespaceChar(grapheme);
+
+		if (currentWidth + gWidth > maxWidth) {
+			if (wrapOppIndex >= 0 && currentWidth - wrapOppWidth + gWidth <= maxWidth) {
+				const breakCharIndex = segments[wrapOppIndex]!.index;
+				chunks.push({
+					text: line.slice(chunkStart, breakCharIndex),
+					startIndex: chunkStart,
+					endIndex: breakCharIndex,
+				});
+				chunkStart = breakCharIndex;
+				currentWidth = currentWidth - wrapOppWidth + gWidth;
+				wrapOppIndex = -1;
+				wrapOppWidth = 0;
+			} else {
+				if (chunkStart < charIndex) {
+					chunks.push({
+						text: line.slice(chunkStart, charIndex),
+						startIndex: chunkStart,
+						endIndex: charIndex,
+					});
+				}
+				chunkStart = charIndex;
+				currentWidth = gWidth;
+				wrapOppIndex = -1;
+				wrapOppWidth = 0;
+			}
+		} else {
+			currentWidth += gWidth;
+		}
+
+		if (isWs) {
+			const nextSeg = segments[i + 1];
+			if (nextSeg && !isWhitespaceChar(nextSeg.segment)) {
+				wrapOppIndex = i + 1;
+				wrapOppWidth = currentWidth;
+			}
+		}
+	}
+
+	if (chunkStart < line.length) {
+		chunks.push({
+			text: line.slice(chunkStart),
+			startIndex: chunkStart,
+			endIndex: line.length,
+		});
+	}
+
+	return chunks;
+}
+
+import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { copyToSystemClipboard } from "../clipboard.ts";
 import { PALETTE } from "../ui/theme.ts";
 import { sanitizeTerminalText } from "./sanitize.ts";

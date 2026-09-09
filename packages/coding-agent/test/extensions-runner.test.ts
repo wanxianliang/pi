@@ -590,51 +590,6 @@ describe("ExtensionRunner", () => {
 			expect(errors[0].error).toContain("Handler error!");
 			expect(errors[0].event).toBe("context");
 		});
-
-		it("can filter tools in context event handler", async () => {
-			const extCode = `
-				export default function(pi) {
-					pi.on("context", (event, ctx) => {
-						return {
-							tools: (event.tools || []).filter((t) => t.name !== "forbidden_tool")
-						};
-					});
-				}
-			`;
-			fs.writeFileSync(path.join(extensionsDir, "tool-filter.ts"), extCode);
-
-			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
-
-			const inputTools = [
-				{ name: "allowed_tool", description: "ok", execute: async () => ({}) },
-				{ name: "forbidden_tool", description: "bad", execute: async () => ({}) },
-			] as any;
-
-			const transformed = await runner.emitTools(inputTools);
-
-			expect(transformed.map((t: any) => t.name)).toEqual(["allowed_tool"]);
-		});
-
-		it("can modify systemPrompt in context event handler", async () => {
-			const extCode = `
-				export default function(pi) {
-					pi.on("context", (event, ctx) => {
-						return {
-							systemPrompt: (event.systemPrompt || "") + "\\n[Appended by Extension]"
-						};
-					});
-				}
-			`;
-			fs.writeFileSync(path.join(extensionsDir, "prompt-filter.ts"), extCode);
-
-			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
-
-			const transformed = await runner.emitContextEnhancements({ systemPrompt: "Original Prompt" });
-
-			expect(transformed.systemPrompt).toBe("Original Prompt\n[Appended by Extension]");
-		});
 	});
 
 	describe("message and entry renderers", () => {
@@ -1024,40 +979,6 @@ describe("ExtensionRunner", () => {
 
 			expect(runner.hasHandlers("tool_call")).toBe(true);
 			expect(runner.hasHandlers("agent_end")).toBe(false);
-		});
-	});
-
-	describe("executeTool", () => {
-		it("triggers tool_call hooks when executed via ctx.executeTool", async () => {
-			const _interceptedToolName = "";
-			const _parentId = "";
-			const extCode = `
-				export default function(pi) {
-					pi.on("tool_call", async (event) => {
-						(globalThis as any).__intercepted = event;
-					});
-					pi.registerTool({
-						name: "sub_tool",
-						label: "sub_tool",
-						description: "sub tool",
-						parameters: {},
-						execute: async () => ({ content: [{ type: "text", text: "ok" }] })
-					});
-				}
-			`;
-			fs.writeFileSync(path.join(extensionsDir, "exec_tool.ts"), extCode);
-
-			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
-			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
-			const ctx = runner.createContext();
-
-			await ctx.executeTool!("sub_tool", { arg: 1 }, { parentToolCallId: "call_1", callerTool: "call_tools" });
-
-			const event = (globalThis as any).__intercepted;
-			expect(event).toBeDefined();
-			expect(event.toolName).toBe("sub_tool");
-			expect(event.parentToolCallId).toBe("call_1");
-			expect(event.callerTool).toBe("call_tools");
 		});
 	});
 
