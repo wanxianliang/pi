@@ -52,8 +52,8 @@ export function createInteractiveTui(options: InteractiveTuiOptions): TuiMainScr
 				try {
 					await copyToClipboard(stripCardBorders(text));
 					return true;
-				} catch {
-					return false;
+				} catch (error) {
+					return error instanceof Error ? error.message : String(error);
 				}
 			},
 		});
