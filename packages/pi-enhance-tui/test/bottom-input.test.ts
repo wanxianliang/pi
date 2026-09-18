@@ -150,6 +150,58 @@ test("renderFrameStatus includes cache hit ratio in context segment", () => {
 	assert.ok(frameStatus.context.includes("⚡90%"));
 });
 
+test("renderFrameStatus does not duplicate provider name on top border", () => {
+	const theme = {
+		fg: (_t: string, s: string) => s,
+		bg: (_t: string, s: string) => s,
+		bold: (s: string) => s,
+	};
+	// Case 1: Model name contains provider in parentheses (e.g. Antigravity extension)
+	const frame1 = renderFrameStatus({
+		ctx: {
+			model: {
+				id: "gemini-3.7-flash",
+				name: "Gemini 3.7 Flash (Antigravity)",
+				provider: "antigravity",
+				contextWindow: 1048576,
+			},
+			getContextUsage: () => ({ tokens: 50000, contextWindow: 1048576, percent: 5 }),
+		},
+		theme,
+		width: 80,
+		beautifiedInputEnabled: true,
+		isStreaming: false,
+		liveUsage: null,
+		latestAssistantUsage: null,
+		currentThinkingLevel: null,
+		sessionStartTime: Date.now(),
+		now: Date.now(),
+		lastPrompt: "",
+	});
+	assert.strictEqual(frame1.model, "Gemini 3.7 Flash");
+	assert.ok(frame1.context?.includes("(antigravity)"));
+
+	// Case 2: Model name starts with provider name (e.g. deepseek-v4-flash)
+	const frame2 = renderFrameStatus({
+		ctx: {
+			model: { id: "deepseek-v4-flash", name: "deepseek-v4-flash", provider: "deepseek", contextWindow: 512000 },
+			getContextUsage: () => ({ tokens: 10000, contextWindow: 512000, percent: 2 }),
+		},
+		theme,
+		width: 80,
+		beautifiedInputEnabled: true,
+		isStreaming: false,
+		liveUsage: null,
+		latestAssistantUsage: null,
+		currentThinkingLevel: null,
+		sessionStartTime: Date.now(),
+		now: Date.now(),
+		lastPrompt: "",
+	});
+	assert.strictEqual(frame2.model, "deepseek-v4-flash");
+	assert.ok(!frame2.context?.includes("(deepseek)"));
+});
+
 test("cacheHitRatioFromUsage supports diverse provider usage shapes", () => {
 	const deepSeekUsage = { prompt_tokens: 1000, prompt_cache_hit_tokens: 750 };
 	assert.equal(cacheHitRatioFromUsage(deepSeekUsage), 75);
@@ -435,7 +487,7 @@ test("renderFixedEditorCluster extracts cursor marker and calculates hardware cu
 	editor.dispose?.();
 });
 
-test("bottom editor renders beam cursor in front of clicked character", () => {
+test("bottom editor positions cursor directly between characters on click without affecting layout", () => {
 	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
 	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
 	const state = {
@@ -449,15 +501,40 @@ test("bottom editor renders beam cursor in front of clicked character", () => {
 	// Click at character 'a' (index 0)
 	editor.setCursorFromClick(0, 0);
 	let rendered = editor.render(80);
-	// Rendered line should have beam ▎ followed by 'abcdef'
-	assert.ok(rendered[1].includes("▎\x1b[0mabcdef"));
+	// Rendered line should position CURSOR_MARKER before 'abcdef' without adding extra characters
+	assert.ok(rendered[1].includes(`${CURSOR_MARKER}abcdef`));
+	assert.ok(!rendered[1].includes("▎"));
 
 	// Click at character 'c' (index 2)
 	editor.setCursorFromClick(0, 2);
 	rendered = editor.render(80);
-	// Rendered line should have 'ab' followed by beam ▎ and 'cdef'
-	assert.ok(rendered[1].includes("ab"));
-	assert.ok(rendered[1].includes("▎\x1b[0mcdef"));
+	// Rendered line should have 'ab' directly followed by CURSOR_MARKER and 'cdef', without shifting layout
+	assert.ok(rendered[1].includes(`ab${CURSOR_MARKER}cdef`));
+	assert.ok(!rendered[1].includes("▎"));
+
+	editor.dispose?.();
+});
+
+test("bottom editor continuous input with wrapping retains cursor on wrapped lines", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	const longLine =
+		"This is a long continuous input line that will definitely wrap into multiple lines across the editor";
+	editor.setText(longLine);
+
+	// Cursor at end of long wrapped line
+	editor.state.cursorLine = 0;
+	editor.state.cursorCol = longLine.length;
+
+	const rendered = editor.render(40);
+	// One of the editor lines must contain CURSOR_MARKER
+	assert.ok(rendered.some((l: string) => l.includes(CURSOR_MARKER)));
 
 	editor.dispose?.();
 });

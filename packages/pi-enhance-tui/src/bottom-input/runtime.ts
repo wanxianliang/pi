@@ -570,8 +570,7 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 			compositor = this.createCompositor({
 				tui,
 				terminal,
-				getShowHardwareCursor: () =>
-					typeof tui?.getShowHardwareCursor === "function" ? Boolean(tui.getShowHardwareCursor()) : true,
+				getShowHardwareCursor: () => true,
 				onCopySelection: (text: string) => {
 					if (generation !== this.generation) return;
 					void this.copyTextToClipboard(text)

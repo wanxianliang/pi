@@ -24,6 +24,7 @@ export interface CardBoxOptions {
 	paddingX?: number;
 	paddingY?: number;
 	limitHeight?: boolean;
+	elapsed?: number | string | null;
 }
 
 export function renderCardBox(options: CardBoxOptions): string[] {
@@ -41,6 +42,7 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 		paddingX = 2,
 		paddingY = 1,
 		limitHeight = true,
+		elapsed,
 	} = options;
 
 	const boxWidth = Math.max(30, Math.min(width, 120));
@@ -179,9 +181,40 @@ export function renderCardBox(options: CardBoxOptions): string[] {
 		}
 	}
 
-	// 6. Bottom Line: ╰────────────────────────────╯
-	const bottomLine = PALETTE.border(`${BORDER_CHARS.bl}${BORDER_CHARS.h.repeat(innerWidth)}${BORDER_CHARS.br}`);
+	// 6. Bottom Line: ╰────────────────────────────╯ (or with elapsed: ╰──────────── 200ms ─╯)
+	const elapsedText = typeof elapsed === "number" ? formatElapsed(elapsed) : (elapsed?.trim() ?? "");
+	let bottomLine: string;
+	if (elapsedText && innerWidth >= visibleWidth(elapsedText) + 4) {
+		const elapsedPart = ` ${PALETTE.muted(elapsedText)} `;
+		const elapsedWidth = visibleWidth(elapsedText) + 2;
+		const dashCount = Math.max(0, innerWidth - elapsedWidth - 1);
+		bottomLine = `${PALETTE.border(`${BORDER_CHARS.bl}${BORDER_CHARS.h.repeat(dashCount)}`)}${elapsedPart}${PALETTE.border(`${BORDER_CHARS.h}${BORDER_CHARS.br}`)}`;
+	} else {
+		bottomLine = PALETTE.border(`${BORDER_CHARS.bl}${BORDER_CHARS.h.repeat(innerWidth)}${BORDER_CHARS.br}`);
+	}
 	resultLines.push(bottomLine);
 
 	return resultLines;
+}
+
+export function formatElapsed(ms: number): string {
+	if (!Number.isFinite(ms) || ms < 0) return "";
+	if (ms < 1000) {
+		return `${Math.round(ms)}ms`;
+	}
+	const totalSeconds = Math.floor(ms / 1000);
+	if (totalSeconds < 60) {
+		return `${totalSeconds}s`;
+	}
+	const totalMinutes = Math.floor(totalSeconds / 60);
+	const remSeconds = totalSeconds % 60;
+	if (totalMinutes < 60) {
+		return remSeconds > 0 ? `${totalMinutes}min${remSeconds}s` : `${totalMinutes}min`;
+	}
+	const hours = Math.floor(totalMinutes / 60);
+	const remMinutes = totalMinutes % 60;
+	let res = `${hours}h`;
+	if (remMinutes > 0) res += `${remMinutes}min`;
+	if (remSeconds > 0) res += `${remSeconds}s`;
+	return res;
 }

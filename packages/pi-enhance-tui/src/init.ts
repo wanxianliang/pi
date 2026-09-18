@@ -171,9 +171,30 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			this.isStreaming = isStreaming;
 			this.contentContainer.clear();
 
-			const hasVisibleContent = message.content?.some(
-				(c: any) => (c.type === "text" && c.text?.trim()) || (c.type === "thinking" && c.thinking?.trim()),
-			);
+			const hasText = message.content?.some((c: any) => c.type === "text" && c.text?.trim());
+			const hasThinking = message.content?.some((c: any) => c.type === "thinking" && c.thinking?.trim());
+
+			if (hasThinking) {
+				if (this.__thinkingStartTime === undefined) {
+					this.__thinkingStartTime = Date.now();
+				}
+				if (hasText || !isStreaming) {
+					if (this.__thinkingEndTime === undefined) {
+						this.__thinkingEndTime = Date.now();
+					}
+				}
+			}
+
+			if (hasText) {
+				if (this.__textStartTime === undefined) {
+					this.__textStartTime = Date.now();
+				}
+				if (!isStreaming && this.__textEndTime === undefined) {
+					this.__textEndTime = Date.now();
+				}
+			}
+
+			const hasVisibleContent = Boolean(hasText || hasThinking);
 
 			if (hasVisibleContent) {
 				this.contentContainer.addChild(new Spacer(1));
@@ -202,6 +223,11 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 								paddingX: 2,
 								paddingY: 1,
 								limitHeight: false,
+								elapsed: (() => {
+									if (this.__textStartTime === undefined) return undefined;
+									const end = this.__textEndTime ?? (streaming ? Date.now() : this.__textStartTime);
+									return Math.max(0, end - this.__textStartTime);
+								})(),
 							});
 							return ["", ...card];
 						},
@@ -249,6 +275,11 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 									paddingX: 2,
 									limitHeight: streaming,
 									maxHeightRunning: 8,
+									elapsed: (() => {
+										if (this.__thinkingStartTime === undefined) return undefined;
+										const end = this.__thinkingEndTime ?? (streaming ? Date.now() : this.__thinkingStartTime);
+										return Math.max(0, end - this.__thinkingStartTime);
+									})(),
 								});
 								return ["", ...card];
 							},
@@ -294,6 +325,12 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		const origSetArgsComplete = ToolClass.prototype.setArgsComplete;
 
 		function updateSpinnerState(comp: any) {
+			if (comp.__startTime === undefined && (comp.executionStarted || comp.isPartial)) {
+				comp.__startTime = Date.now();
+			}
+			if (!comp.isPartial && comp.__startTime !== undefined && comp.__endTime === undefined) {
+				comp.__endTime = Date.now();
+			}
 			if (comp.isPartial && comp.executionStarted) {
 				if (!comp.__spinnerInterval) {
 					comp.__spinnerInterval = setInterval(() => {
@@ -355,6 +392,14 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 					: "success";
 
 			const frame = SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length];
+			let elapsed: number | undefined;
+			if (this.__startTime !== undefined) {
+				const end = this.__endTime ?? (this.isPartial ? Date.now() : this.__startTime);
+				elapsed = Math.max(0, end - this.__startTime);
+			} else if (this.rendererState?.startedAt !== undefined) {
+				const end = this.rendererState.endedAt ?? (this.isPartial ? Date.now() : this.rendererState.startedAt);
+				elapsed = Math.max(0, end - this.rendererState.startedAt);
+			}
 			const cardLines = renderCardBox({
 				toolName: this.toolName,
 				status,
@@ -365,6 +410,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 				paddingX: 2,
 				maxHeightRunning: 10,
 				maxHeightFinished: 10,
+				elapsed,
 			});
 
 			const lines: string[] = ["", ...cardLines];

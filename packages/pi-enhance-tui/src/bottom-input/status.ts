@@ -90,6 +90,7 @@ export function renderDetailedTokenStatus(
 	provider: string | null,
 	theme: ThemeLike,
 	cacheHitRatio: number | null = null,
+	modelName?: string | null,
 ): string | null {
 	const parts: string[] = [];
 
@@ -110,7 +111,7 @@ export function renderDetailedTokenStatus(
 		parts.push(safeFg(theme, "success", `⚡${Math.round(ratio)}%`, "cyan"));
 	}
 
-	if (provider) {
+	if (provider && !isProviderRedundant(modelName, provider)) {
 		parts.push(safeFg(theme, "muted", `(${provider})`));
 	}
 
@@ -132,7 +133,7 @@ export function renderFrameStatus(
 	return {
 		model: renderModelSegment(modelName, null, input.theme, input.icons ?? getBottomInputIcons()),
 		thinking: renderThinkingSegment(thinkingLevel, input.theme),
-		context: renderDetailedTokenStatus(usage, rawUsage, provider, input.theme, cacheHitRatio),
+		context: renderDetailedTokenStatus(usage, rawUsage, provider, input.theme, cacheHitRatio, modelName),
 		elapsed: renderElapsedSegment(
 			input.theme,
 			input.sessionStartTime,
@@ -377,12 +378,9 @@ function renderModelSegment(
 	_icons: BottomInputIconSet,
 ): string | null {
 	if (!modelName) return null;
-	if (provider) {
+	if (provider && !isProviderRedundant(modelName, provider)) {
 		const suffix = `(${provider})`;
-		if (modelName.toLowerCase().endsWith(suffix.toLowerCase())) {
-			return safeFg(theme, "accent", modelName);
-		}
-		return safeFg(theme, "accent", modelName) + safeFg(theme, "muted", suffix);
+		return `${safeFg(theme, "accent", modelName)} ${safeFg(theme, "muted", suffix)}`;
 	}
 	return safeFg(theme, "accent", modelName);
 }
@@ -409,14 +407,33 @@ function renderElapsedSegment(
 	return safeFg(theme, "muted", `◷ ${formatDuration(elapsed)}`);
 }
 
-function normalizeModelName(value: unknown): string | null {
+function isProviderRedundant(modelName?: string | null, provider?: string | null): boolean {
+	if (!provider || !modelName) return false;
+	const p = provider.trim().toLowerCase();
+	const m = modelName.trim().toLowerCase();
+	if (m.includes(`(${p})`) || m.includes(`[${p}]`)) return true;
+	if (m === p || m.startsWith(`${p}-`) || m.startsWith(`${p}/`) || m.startsWith(`${p}_`) || m.startsWith(`${p} `)) {
+		return true;
+	}
+	return false;
+}
+
+function normalizeModelName(value: unknown, provider?: string | null): string | null {
 	if (typeof value !== "string") return null;
 	let modelName = value.trim();
 	if (!modelName) return null;
 	if (modelName.includes("/")) modelName = modelName.split("/").filter(Boolean).at(-1) ?? modelName;
 	if (modelName.includes(":")) modelName = modelName.split(":").filter(Boolean).at(-1) ?? modelName;
 	if (modelName.startsWith("Claude ")) modelName = modelName.slice("Claude ".length);
-	return modelName.trim() || null;
+	if (provider) {
+		const cleanProvider = provider.trim().toLowerCase();
+		const suffix = `(${cleanProvider})`;
+		if (modelName.toLowerCase().endsWith(suffix)) {
+			modelName = modelName.slice(0, modelName.length - suffix.length).trim();
+		}
+	}
+	modelName = modelName.replace(/\s*\([a-zA-Z0-9_.-]+\)$/, "").trim();
+	return modelName || null;
 }
 
 function readThinkingLevel(ctx: any): string | null {
@@ -531,7 +548,8 @@ function readModelContextWindow(ctx: any): number {
 
 function readModelName(ctx: any): string | null {
 	try {
-		return normalizeModelName(ctx?.model?.name || ctx?.model?.id);
+		const provider = readModelProvider(ctx);
+		return normalizeModelName(ctx?.model?.name || ctx?.model?.id, provider);
 	} catch {
 		return null;
 	}

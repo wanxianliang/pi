@@ -86,7 +86,6 @@ export function wordWrapLine(line: string, maxWidth: number): TextChunk[] {
 
 import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { copyToSystemClipboard } from "../clipboard.ts";
-import { PALETTE } from "../ui/theme.ts";
 import { sanitizeTerminalText } from "./sanitize.ts";
 import { isCopyShortcutInput, isCutShortcutInput, isSelectAllShortcutInput } from "./shortcuts.ts";
 import type { BeautifiedEditorFrameInput, BottomInputEditorState, BottomInputFrameStatus, ThemeLike } from "./types.ts";
@@ -351,7 +350,7 @@ export type SplitEditorRenderResult = {
 
 export function isNativeEditorRule(line: string): boolean {
 	const plain = stripAnsi(line).trim();
-	return plain.includes("─") && [...plain].every((char) => "─↑↓ 0123456789more".includes(char));
+	return plain.includes("─") && [...plain].every((char) => "─↑↓ 0123456789more.".includes(char));
 }
 
 export function splitNativeEditorRender(lines: readonly string[]): SplitEditorRenderResult {
@@ -410,22 +409,30 @@ export function getNormalizedSelectionRange(
 export function computeEditorVisualLines(
 	lines: readonly string[],
 	width: number,
-): Array<{ logicalLine: number; startCol: number; length: number; text: string }> {
-	const visualLines: Array<{ logicalLine: number; startCol: number; length: number; text: string }> = [];
+): Array<{ logicalLine: number; startCol: number; length: number; text: string; isLastChunk: boolean }> {
+	const visualLines: Array<{
+		logicalLine: number;
+		startCol: number;
+		length: number;
+		text: string;
+		isLastChunk: boolean;
+	}> = [];
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] || "";
 		if (line.length === 0) {
-			visualLines.push({ logicalLine: i, startCol: 0, length: 0, text: "" });
+			visualLines.push({ logicalLine: i, startCol: 0, length: 0, text: "", isLastChunk: true });
 		} else if (visibleWidth(line) <= width) {
-			visualLines.push({ logicalLine: i, startCol: 0, length: line.length, text: line });
+			visualLines.push({ logicalLine: i, startCol: 0, length: line.length, text: line, isLastChunk: true });
 		} else {
 			const chunks = wordWrapLine(line, width);
-			for (const chunk of chunks) {
+			for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+				const chunk = chunks[chunkIndex]!;
 				visualLines.push({
 					logicalLine: i,
 					startCol: chunk.startIndex,
 					length: chunk.endIndex - chunk.startIndex,
 					text: chunk.text,
+					isLastChunk: chunkIndex === chunks.length - 1,
 				});
 			}
 		}
@@ -440,6 +447,7 @@ export function highlightVisualLineSelection(
 	logicalLine: number,
 	range: { start: { line: number; col: number }; end: { line: number; col: number } } | null,
 	cursor?: { line: number; col: number; visible?: boolean },
+	isLastChunk = true,
 ): string {
 	const lineStartCol =
 		range && logicalLine >= range.start.line && logicalLine <= range.end.line
@@ -457,23 +465,15 @@ export function highlightVisualLineSelection(
 	const hasSelectionOnLine = Boolean(range && lineStartCol < lineEndCol);
 	const isCursorLine = cursor && cursor.line === logicalLine;
 	const isCursorOnVL = Boolean(
-		isCursorLine &&
-			cursor.col >= startCol &&
-			(cursor.col < startCol + length || (startCol + length === text.length && cursor.col === startCol + length)),
+		isCursorLine && cursor.col >= startCol && (isLastChunk ? true : cursor.col < startCol + length),
 	);
-	const cursorPosOnVL = isCursorOnVL ? cursor!.col - startCol : -1;
-	const showBlink = cursor ? cursor.visible !== false : true;
+	const cursorPosOnVL = isCursorOnVL ? Math.min(cursor!.col - startCol, text.length) : -1;
 
 	if (!hasSelectionOnLine) {
 		if (!isCursorOnVL) return text;
 		const before = text.slice(0, cursorPosOnVL);
 		const after = text.slice(cursorPosOnVL);
-		if (after.length > 0) {
-			const cursorBeam = showBlink ? PALETTE.cursor("▎") : "\x1b[38;2;60;75;90m▎\x1b[0m";
-			return `${before}${CURSOR_MARKER}${cursorBeam}${after}`;
-		}
-		const cursorChar = showBlink ? PALETTE.cursor("▎") : " ";
-		return `${before}${CURSOR_MARKER}${cursorChar}`;
+		return `${before}${CURSOR_MARKER}${after}`;
 	}
 
 	const selStart = lineStartCol - startCol;
@@ -901,7 +901,15 @@ export class EnhancedEditorBase extends Editor {
 		const styledEditorLines = editorLines.map((_line, idx) => {
 			const vl = visualLines[scrollOffset + idx];
 			if (!vl) return _line;
-			return highlightVisualLineSelection(vl.text, vl.startCol, vl.length, vl.logicalLine, range, cursor);
+			return highlightVisualLineSelection(
+				vl.text,
+				vl.startCol,
+				vl.length,
+				vl.logicalLine,
+				range,
+				cursor,
+				vl.isLastChunk ?? true,
+			);
 		});
 		const decoratedBase = isNativeEditorRule(base[0] ?? "")
 			? [base[0]!, ...styledEditorLines, ...popupLines]

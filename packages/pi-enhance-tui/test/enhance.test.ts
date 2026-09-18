@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
 	FastTextMeasureEngine,
+	formatElapsed,
 	formatToolArgs,
 	formatToolExecutionLines,
 	getMaxVisibleMessages,
@@ -79,6 +80,42 @@ describe("pi-enhance-tui core suite", () => {
 		assert.ok(runningLines[0].includes("⠋"));
 		assert.ok(!runningLines[0].includes("Running"));
 		assert.ok(!runningLines[0].includes(" ── "));
+
+		// Elapsed formatting on bottom border
+		assert.strictEqual(formatElapsed(200), "200ms");
+		assert.strictEqual(formatElapsed(50000), "50s");
+		assert.strictEqual(formatElapsed(80000), "1min20s");
+		assert.strictEqual(formatElapsed(60000), "1min");
+
+		const cardWithElapsedMs = renderCardBox({
+			title: "read",
+			variant: "tool",
+			contentLines: ["content"],
+			width: 60,
+			elapsed: 200,
+		});
+		assert.ok(cardWithElapsedMs[cardWithElapsedMs.length - 1].includes("200ms"));
+		assert.ok(cardWithElapsedMs[cardWithElapsedMs.length - 1].includes("─╯"));
+
+		const cardWithElapsedSec = renderCardBox({
+			title: "bash",
+			variant: "tool",
+			contentLines: ["content"],
+			width: 60,
+			elapsed: 50000,
+		});
+		assert.ok(cardWithElapsedSec[cardWithElapsedSec.length - 1].includes("50s"));
+		assert.ok(cardWithElapsedSec[cardWithElapsedSec.length - 1].includes("─╯"));
+
+		const cardWithElapsedMin = renderCardBox({
+			title: "Pi",
+			variant: "assistant",
+			contentLines: ["content"],
+			width: 60,
+			elapsed: 80000,
+		});
+		assert.ok(cardWithElapsedMin[cardWithElapsedMin.length - 1].includes("1min20s"));
+		assert.ok(cardWithElapsedMin[cardWithElapsedMin.length - 1].includes("─╯"));
 	});
 
 	it("stripCardBorders cleans border artifacts", () => {

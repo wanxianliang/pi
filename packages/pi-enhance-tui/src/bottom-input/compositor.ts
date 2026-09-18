@@ -127,7 +127,7 @@ export function hideCursor(): string {
 }
 
 export function showCursor(): string {
-	return "\x1b[?25h";
+	return "\x1b[5 q\x1b[?25h";
 }
 
 export function resetFixedBottomEditorTerminalState(): string {
@@ -137,6 +137,7 @@ export function resetFixedBottomEditorTerminalState(): string {
 		disableMouseReporting() +
 		enableAlternateScrollMode() +
 		exitAlternateScreen() +
+		"\x1b[0 q" +
 		showCursor() +
 		endSynchronizedOutput()
 	);
