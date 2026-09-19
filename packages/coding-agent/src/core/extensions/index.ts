@@ -107,6 +107,7 @@ export type {
 	MessageUpdateEvent,
 	ModelSelectEvent,
 	ModelSelectSource,
+	NormalizedBuildSystemPromptOptions,
 	PowerShellToolCallEvent,
 	PowerShellToolResultEvent,
 	ProjectTrustContext,

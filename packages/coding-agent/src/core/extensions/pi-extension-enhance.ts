@@ -3,6 +3,13 @@
  */
 
 import * as fs from "node:fs";
+import type { Context, Tool, TranscriptContext } from "@earendil-works/pi-ai";
+import {
+	createInitialSystemMessage,
+	getCurrentSystemPrompt,
+	getCurrentTools,
+	withoutInitialSystemMessage,
+} from "@earendil-works/pi-ai";
 import { createSyntheticSourceInfo } from "../source-info.ts";
 import type { ContextEvent, ContextEventResult, ExtensionContext } from "./types.ts";
 
@@ -442,7 +449,7 @@ export function mergeExtensionTools(baseTools: Record<string, any>, registeredTo
 /**
  * Helper to apply context enhancements in 1 concise line for SDK stream wrapper.
  */
-export async function applyContextEnhancements<T extends { systemPrompt?: string; tools?: any[] }>(
+export async function applyContextEnhancements<T extends TranscriptContext | Context>(
 	headerRunner: {
 		emitContextEnhancements: (options: {
 			systemPrompt?: string;
@@ -451,13 +458,38 @@ export async function applyContextEnhancements<T extends { systemPrompt?: string
 	},
 	context: T,
 ): Promise<T> {
+	const rawSystemPrompt =
+		"systemPrompt" in context && typeof context.systemPrompt === "string"
+			? context.systemPrompt
+			: getCurrentSystemPrompt(context.messages);
+	const rawTools =
+		"tools" in context && Array.isArray(context.tools) ? context.tools : getCurrentTools(context.messages);
+
 	const enhanced = await headerRunner.emitContextEnhancements({
-		systemPrompt: context.systemPrompt,
-		tools: context.tools,
+		systemPrompt: rawSystemPrompt,
+		tools: rawTools,
 	});
-	return {
+
+	const hasPromptChange = enhanced.systemPrompt !== undefined && enhanced.systemPrompt !== rawSystemPrompt;
+	const hasToolsChange = enhanced.tools !== undefined && enhanced.tools !== rawTools;
+
+	if (!hasPromptChange && !hasToolsChange) {
+		return context;
+	}
+
+	const finalSystemPrompt = enhanced.systemPrompt !== undefined ? enhanced.systemPrompt : rawSystemPrompt;
+	const finalTools = (enhanced.tools !== undefined ? enhanced.tools : rawTools) as Tool[];
+
+	const otherMessages = withoutInitialSystemMessage(context.messages);
+	const initialMessage = createInitialSystemMessage(finalSystemPrompt, finalTools);
+	const newMessages = initialMessage ? [initialMessage, ...otherMessages] : otherMessages;
+
+	const result = {
 		...context,
-		...(enhanced.systemPrompt !== undefined ? { systemPrompt: enhanced.systemPrompt } : {}),
-		...(enhanced.tools !== undefined ? { tools: enhanced.tools } : {}),
+		...("systemPrompt" in context ? { systemPrompt: finalSystemPrompt } : {}),
+		...("tools" in context ? { tools: finalTools } : {}),
+		messages: newMessages,
 	};
+
+	return result as T;
 }
