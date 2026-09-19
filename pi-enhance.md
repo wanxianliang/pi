@@ -9,20 +9,21 @@
 
 | 文件 | 修改说明 |
 |------|----------|
-| `packages/coding-agent/src/core/sdk.ts` | 在 `modelRuntime.streamSimple` 调用前单行调用 `applyContextEnhancements(headerRunner, context)` |
+| `packages/coding-agent/src/core/sdk.ts` | 在 `modelRuntime.streamSimple` 调用前单行调用 `applyContextEnhancements(headerRunner, context)`（已兼容官方最新重构的 `TranscriptContext` 规范） |
 | `packages/coding-agent/src/modes/interactive/tui-renderer.ts` | 仅在 `createInteractiveTui` 入口单点调用 `initPiEnhanceTui({ ... })` 动态挂载原型增强，并在复制选区时单行调用 `stripCardBorders(text)` 去除卡片边框 |
 | `packages/coding-agent/src/core/agent-session.ts` | 仅在 `runner.bindCore` 的 `contextActions` 中注册 `getAllToolDefinitions` 与 `emitAgentEvent`，并在 `isAllowedTool` 中追加 `isToolEnabledInConfig` 配置过滤 |
 | `packages/coding-agent/src/core/resource-loader.ts` | `getExtensions()` 与 `getSkills()` 返回前分别单行经过 `filterEnabledExtensions` 与 `filterEnabledSkills` 过滤 |
 | `packages/coding-agent/src/core/extensions/index.ts` | 导出 `EnhancedContextResult` 与 `filterContextWithExtensions` |
-| `packages/coding-agent/src/core/extensions/runner.ts` | `createContext` 暴露 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool`，并提供 `emitContextEnhancements` 拦截触发器与 `emitTools` 方法 |
+| `packages/coding-agent/src/core/extensions/runner.ts` | `createContext` 暴露 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool`，提供 `emitContextEnhancements` 与 `emitTools`，并兼容上游最新的 `normalizeBuildSystemPromptOptions` |
 | `packages/coding-agent/src/core/extensions/types.ts` | 声明 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool` 接口扩展，并在 `ContextEvent` / `ContextEventResult` / `ToolCallEventBase` / `ExtensionContextActions` 中声明扩展字段 |
 | `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui` 依赖及 `build:binary` 构建前置步骤 |
 | `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` 依赖锁信息 |
 | `packages/coding-agent/npm-shrinkwrap.json` | 记录 `@earendil-works/pi-enhance-tui` shrinkwrap 信息 |
-| `package.json` | 在全局 `build` / `build:offline` 脚本中插入 `pi-enhance-tui` 构建步骤 |
+| `package.json` | 在全局 `build` / `build:offline` 脚本中插入 `pi-enhance-tui` 构建步骤（保留上游最新的 `durable` 构建） |
 | `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` workspace 软链接及依赖项 |
 | `tsconfig.json` | 映射 `@earendil-works/pi-enhance-tui` 路径 |
 | `vitest.base.ts` | 映射 `@earendil-works/pi-enhance-tui` 路径别名 |
+| `.npmrc` | 配置 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true` |
 | `.gitignore` | 忽略本地 `plan/archive/`、`.codegraph/` 与 `pi-bundle.tar.gz` |
 
 ### 官方 0 修改的纯净模块
@@ -39,6 +40,9 @@
 - **`packages/coding-agent/src/core/keybindings.ts`**：**100% 官方纯净源码**（0 修改）
 - **`packages/coding-agent/src/modes/interactive/components/*`**：**100% 官方纯净源码**（0 修改）
 - **`packages/coding-agent/src/modes/interactive/interactive-mode.ts`**：**100% 官方纯净源码**（0 修改，随上游重构解耦后完全恢复纯净）
+- **`packages/durable/*`**：**100% 官方纯净源码**（0 修改，上游最新新增持久化支持）
+- **`packages/chord/*`**：**100% 官方纯净源码**（0 修改）
+- **`packages/evals/*`**：**100% 官方纯净源码**（0 修改）
 
 ---
 
@@ -68,3 +72,5 @@
 - **`update_code_from_pi.sh`**：自动从官方 upstream/main 拉取并合并同步最新源码。
 - **`replace.sh`**：本地增强包构建并替换安装至全局 bun 运行环境的脚本。
 - **`pack.sh`**：项目打包发布与制品归档脚本（生成 `pi-bundle.tar.gz`）。
+- **`pnpm-workspace.yaml` / `pnpm-lock.yaml`**：pnpm workspace 配置文件与依赖锁。
+- **`UPDATECODE.md`**：上游代码拉取合并与冲突解决维护说明。
