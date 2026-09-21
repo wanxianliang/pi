@@ -6,6 +6,7 @@ import {
 	copyToSystemClipboard,
 	createBottomInputEditor,
 	createBottomInputRuntime,
+	FixedBottomEditorCompositor,
 	getUsageTokenTotal,
 	isAssistantUsage,
 	isSelectAllShortcutInput,
@@ -451,6 +452,10 @@ test("bottom editor cursor blinking toggles and resets on interaction", () => {
 	editor.lastInteractionTime = Date.now() - 600;
 	assert.equal(editor.isCursorBlinkVisible(), false);
 
+	// Idle threshold past 3000ms keeps cursor solid to prevent waking render loop
+	editor.lastInteractionTime = Date.now() - 3500;
+	assert.equal(editor.isCursorBlinkVisible(), true);
+
 	// Reset blink on interaction
 	editor.resetCursorBlink();
 	assert.equal(editor.isCursorBlinkVisible(), true);
@@ -537,4 +542,61 @@ test("bottom editor continuous input with wrapping retains cursor on wrapped lin
 	assert.ok(rendered.some((l: string) => l.includes(CURSOR_MARKER)));
 
 	editor.dispose?.();
+});
+
+test("compositor caches rootLines and avoids redundant terminal writes", () => {
+	let writeCount = 0;
+	let renderCount = 0;
+	const mockTerminal = {
+		rows: 24,
+		columns: 80,
+		write: () => {
+			writeCount++;
+		},
+	};
+	const fakeRoot = {
+		render: () => {
+			renderCount++;
+			return ["line 1", "line 2", "line 3"];
+		},
+	};
+	const mockTui = {
+		render: (_w: number) => fakeRoot.render(),
+		doRender: () => {},
+		invalidate: () => {},
+		terminal: mockTerminal,
+	};
+	const compositor = new FixedBottomEditorCompositor({
+		tui: mockTui,
+		terminal: mockTerminal as any,
+		renderCluster: () => ({ lines: ["status line", "editor line"] }),
+	});
+
+	compositor.install();
+	assert.strictEqual(renderCount, 0);
+
+	// First render fills cache
+	const frame1 = mockTui.render(80);
+	assert.strictEqual(renderCount, 1);
+
+	// Second render with same width reuses cached rootLines
+	const frame2 = mockTui.render(80);
+	assert.strictEqual(renderCount, 1);
+	assert.deepStrictEqual(frame1, frame2);
+
+	// Invalidate marks root dirty and causes re-render
+	mockTui.invalidate();
+	mockTui.render(80);
+	assert.strictEqual(renderCount, 2);
+
+	// Test redundant cluster writes in requestRepaint
+	const writesBefore = writeCount;
+	compositor.requestRepaint();
+	assert.strictEqual(writeCount, writesBefore + 1);
+
+	// Calling repaint again with identical cluster should not write to terminal
+	compositor.requestRepaint();
+	assert.strictEqual(writeCount, writesBefore + 1);
+
+	compositor.dispose();
 });

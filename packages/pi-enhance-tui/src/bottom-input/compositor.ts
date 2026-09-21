@@ -389,6 +389,10 @@ export class FixedBottomEditorCompositor {
 	private selectionDragging = false;
 	private preserveSelectionFocusOnRelease = false;
 	private lastLeftPress: { area: SelectionArea; line: number; at: number } | null = null;
+	private rootDirty = true;
+	private lastRootWidth = -1;
+	private lastPaintedCluster: string | null = null;
+	private origTuiInvalidate: (() => void) | null = null;
 
 	constructor(options: FixedBottomEditorCompositorOptions) {
 		this.tui = options.tui;
@@ -417,8 +421,18 @@ export class FixedBottomEditorCompositor {
 
 		this.originalWrite = this.terminal.write;
 		const tuiProto = this.tui ? Object.getPrototypeOf(this.tui) : undefined;
-		this.originalRender = typeof tuiProto?.render === "function" ? (tuiProto.render as TuiRender) : null;
-		this.originalDoRender = typeof tuiProto?.doRender === "function" ? (tuiProto.doRender as TuiDoRender) : null;
+		this.originalRender =
+			typeof tuiProto?.render === "function"
+				? (tuiProto.render as TuiRender)
+				: typeof this.tui?.render === "function"
+					? (this.tui.render as TuiRender)
+					: null;
+		this.originalDoRender =
+			typeof tuiProto?.doRender === "function"
+				? (tuiProto.doRender as TuiDoRender)
+				: typeof this.tui?.doRender === "function"
+					? (this.tui.doRender as TuiDoRender)
+					: null;
 		this.originalOwnRowsDescriptor = Object.getOwnPropertyDescriptor(this.terminal, "rows");
 		this.originalRowsDescriptor = findRowsDescriptor(this.terminal);
 
@@ -453,6 +467,14 @@ export class FixedBottomEditorCompositor {
 			if (this.originalDoRender) {
 				this.tui.doRender = this.doRenderWrapper;
 			}
+			if (typeof this.tui?.invalidate === "function") {
+				const orig = this.tui.invalidate.bind(this.tui);
+				this.origTuiInvalidate = orig;
+				this.tui.invalidate = () => {
+					this.markRootDirty();
+					orig();
+				};
+			}
 			if (typeof this.tui.addInputListener === "function") {
 				this.removeInputListener = this.tui.addInputListener((data: string) => this.handleInput(data));
 			}
@@ -463,6 +485,10 @@ export class FixedBottomEditorCompositor {
 			this.restorePatches(true);
 			throw error;
 		}
+	}
+
+	markRootDirty(): void {
+		this.rootDirty = true;
 	}
 
 	hideRenderable(target: FixedEditorRenderable): void {
@@ -491,11 +517,16 @@ export class FixedBottomEditorCompositor {
 		const cluster = this.getCluster(width, rawRows);
 		if (cluster.lines.length === 0) return;
 
-		this.writeOriginal(
-			beginSynchronizedOutput() +
-				buildFixedEditorClusterPaint(this.decorateCluster(cluster), rawRows, width, this.getShowHardwareCursor()) +
-				endSynchronizedOutput(),
+		const clusterPaint = buildFixedEditorClusterPaint(
+			this.decorateCluster(cluster),
+			rawRows,
+			width,
+			this.getShowHardwareCursor(),
 		);
+		if (clusterPaint === this.lastPaintedCluster) return;
+		this.lastPaintedCluster = clusterPaint;
+
+		this.writeOriginal(beginSynchronizedOutput() + clusterPaint + endSynchronizedOutput());
 	}
 
 	setKeyboardScrollShortcuts(shortcuts: { up: string; down: string }): void {
@@ -539,6 +570,12 @@ export class FixedBottomEditorCompositor {
 		if (this.originalDoRender && this.tui.doRender === this.doRenderWrapper) {
 			this.tui.doRender = this.originalDoRender;
 		}
+		if (this.origTuiInvalidate && this.tui.invalidate) {
+			this.tui.invalidate = this.origTuiInvalidate;
+			this.origTuiInvalidate = null;
+		}
+		this.lastPaintedCluster = null;
+		this.rootDirty = true;
 		if (shouldRestoreRows) {
 			this.restoreRowsDescriptor();
 		}
@@ -603,17 +640,19 @@ export class FixedBottomEditorCompositor {
 
 			const scrollBottom = Math.max(1, rawRows - cluster.lines.length);
 			const screenRow = this.getCurrentScreenRow(scrollBottom);
+			const clusterPaint = buildFixedEditorClusterPaint(
+				this.decorateCluster(cluster),
+				rawRows,
+				width,
+				this.getShowHardwareCursor(),
+			);
+			this.lastPaintedCluster = clusterPaint;
 			this.writeOriginal(
 				beginSynchronizedOutput() +
 					setScrollRegion(1, scrollBottom) +
 					moveCursor(screenRow, 1) +
 					data +
-					buildFixedEditorClusterPaint(
-						this.decorateCluster(cluster),
-						rawRows,
-						width,
-						this.getShowHardwareCursor(),
-					) +
+					clusterPaint +
 					endSynchronizedOutput(),
 			);
 		} finally {
@@ -657,6 +696,10 @@ export class FixedBottomEditorCompositor {
 			return rawRows;
 		}
 
+		if (this.lastCluster?.lines && !this.rootDirty) {
+			return Math.max(1, rawRows - this.lastCluster.lines.length);
+		}
+
 		const cluster = this.getCluster(this.getTerminalWidth(), rawRows);
 		return Math.max(1, rawRows - cluster.lines.length);
 	}
@@ -668,8 +711,13 @@ export class FixedBottomEditorCompositor {
 		const renderWidth = Math.max(1, Math.floor(width));
 		const cluster = this.getCluster(renderWidth, rawRows);
 		const scrollableRows = Math.max(1, rawRows - cluster.lines.length);
-		const lines = this.originalRender.call(this.tui, renderWidth, ...args);
-		this.rootLines = Array.isArray(lines) ? lines : [];
+		const shouldReRender = this.rootDirty || this.lastRootWidth !== renderWidth || this.rootLines.length === 0;
+		if (shouldReRender) {
+			const lines = this.originalRender.call(this.tui, renderWidth, ...args);
+			this.rootLines = Array.isArray(lines) ? lines : [];
+			this.rootDirty = false;
+			this.lastRootWidth = renderWidth;
+		}
 		if (this.scrollOffset > 0 && this.lastRootLineCount > 0 && this.rootLines.length > this.lastRootLineCount) {
 			this.scrollOffset += this.rootLines.length - this.lastRootLineCount;
 		}
@@ -750,10 +798,12 @@ export class FixedBottomEditorCompositor {
 			);
 		}
 
-		buffer +=
+		const clusterPaint =
 			options.paintCluster === true
 				? buildFixedEditorClusterPaint(cluster, metrics.rawRows, metrics.width, this.getShowHardwareCursor())
 				: buildFixedEditorCursorRestore(cluster, metrics.rawRows, metrics.width, this.getShowHardwareCursor());
+		buffer += clusterPaint;
+		this.lastPaintedCluster = clusterPaint;
 		buffer += endSynchronizedOutput();
 		this.writeOriginal(buffer);
 	}

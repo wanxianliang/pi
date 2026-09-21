@@ -515,6 +515,7 @@ export class EnhancedEditorBase extends Editor {
 		const now = Date.now();
 		const diff = now - this.lastInteractionTime;
 		if (diff < 500) return true;
+		if (diff >= 3000) return true;
 		return Math.floor(diff / 500) % 2 === 0;
 	}
 
@@ -525,6 +526,7 @@ export class EnhancedEditorBase extends Editor {
 	public startBlinkTimer(): void {
 		if (this.blinkTimer) return;
 		this.blinkTimer = setInterval(() => {
+			if (Date.now() - this.lastInteractionTime >= 3000) return;
 			if (this.tui && typeof this.tui.requestRender === "function") {
 				this.tui.requestRender();
 			}

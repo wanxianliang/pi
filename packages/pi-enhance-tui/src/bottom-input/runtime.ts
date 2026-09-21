@@ -34,7 +34,9 @@ export type CompositorLike = Pick<
 	| "jumpToNextRootTarget"
 	| "jumpToRootBottom"
 	| "getSelectedText"
->;
+> & {
+	markRootDirty?(): void;
+};
 
 type FixedEditorContainers = {
 	statusContainer: FixedEditorRenderable | null;
@@ -56,9 +58,9 @@ const FALLBACK_EDITOR_THEME = {
 	selectList: {},
 };
 const STASH_STATUS_KEY = "pi-enhance-tui-stash";
-const STATUS_RENDER_INTERVAL_MS = 500;
+const STATUS_RENDER_INTERVAL_MS = 1000;
 const STATUS_RENDER_DEBOUNCE_MS = 33;
-const LAYOUT_CACHE_TTL_MS = 250;
+const LAYOUT_CACHE_TTL_MS = 1000;
 const STREAMING_LAYOUT_CACHE_TTL_MS = 1000;
 
 export function createBottomInputRuntime(options: BottomInputRuntimeOptions = {}): BottomInputRuntime {
@@ -213,7 +215,8 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 		this.isStreaming = streaming;
 		if (streaming) this.liveUsage = null;
 		this.resetLayoutCache();
-		this.requestRender();
+		this.compositor?.markRootDirty?.();
+		this.requestRender({ full: true });
 	}
 
 	setLiveUsage(usage: unknown): void {
@@ -229,12 +232,16 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 		this.isStreaming = false;
 		this.liveUsage = null;
 		this.resetLayoutCache();
-		this.requestRender();
+		this.compositor?.markRootDirty?.();
+		this.requestRender({ full: true });
 	}
 
 	requestRender(options: { full?: boolean } = {}): void {
 		if (!this.layoutInstalled) return;
-		if (options.full) this.renderPendingFull = true;
+		if (options.full) {
+			this.renderPendingFull = true;
+			this.compositor?.markRootDirty?.();
+		}
 		if (this.renderPending) return;
 		const generation = this.generation;
 		this.renderPending = true;

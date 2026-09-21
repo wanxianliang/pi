@@ -114,11 +114,21 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 	if (options?.UserMessageComponent) {
 		const UserClass = options.UserMessageComponent;
 		const origUserRender = UserClass.prototype.render;
+		const origUserInvalidate = UserClass.prototype.invalidate;
 		const OSC133_ZONE_START = "\x1b]133;A\x07";
 		const OSC133_ZONE_END = "\x1b]133;B\x07";
 		const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
+		UserClass.prototype.invalidate = function (this: any): void {
+			this.__cachedCardLines = undefined;
+			this.__cachedCardWidth = undefined;
+			origUserInvalidate?.call(this);
+		};
+
 		UserClass.prototype.render = function (this: any, width: number): string[] {
+			if (this.__cachedCardLines && this.__cachedCardWidth === width) {
+				return this.__cachedCardLines;
+			}
 			const contentBox = this.children?.[0];
 			const markdown = contentBox?.children?.[0] ?? this.children?.[0];
 			const rawLines = markdown ? markdown.render(Math.max(20, width - 4)) : this.text ? [this.text] : [];
@@ -136,10 +146,14 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 
 			cardLines[0] = OSC133_ZONE_START + cardLines[0];
 			cardLines[cardLines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + cardLines[cardLines.length - 1];
-			return ["", ...cardLines];
+			const result = ["", ...cardLines];
+			this.__cachedCardLines = result;
+			this.__cachedCardWidth = width;
+			return result;
 		};
 		restorers.push(() => {
 			UserClass.prototype.render = origUserRender;
+			if (origUserInvalidate) UserClass.prototype.invalidate = origUserInvalidate;
 		});
 	}
 
@@ -207,8 +221,13 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 						transform: createTransform("assistant", this.isStreaming, this.markdownTransformers),
 					});
 					const streaming = this.isStreaming;
+					let cachedCardLines: string[] | undefined;
+					let cachedCardWidth = -1;
 					const assistantCard = {
 						render: (w: number): string[] => {
+							if (!streaming && cachedCardLines && cachedCardWidth === w) {
+								return cachedCardLines;
+							}
 							const contentWidth = Math.max(10, Math.min(w, 120) - 2 - 4);
 							const rawLines = textMarkdown.render(contentWidth);
 							const cleanLines = stripAnsiBackgrounds(rawLines);
@@ -229,9 +248,17 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 									return Math.max(0, end - this.__textStartTime);
 								})(),
 							});
-							return ["", ...card];
+							const result = ["", ...card];
+							if (!streaming) {
+								cachedCardLines = result;
+								cachedCardWidth = w;
+							}
+							return result;
 						},
-						invalidate: () => textMarkdown.invalidate(),
+						invalidate: () => {
+							cachedCardLines = undefined;
+							textMarkdown.invalidate();
+						},
 					};
 					this.contentContainer.addChild(assistantCard as any);
 				} else if (content.type === "thinking") {
@@ -261,8 +288,13 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 						);
 
 						const streaming = this.isStreaming;
+						let cachedThinkingLines: string[] | undefined;
+						let cachedThinkingWidth = -1;
 						const thinkingCard = {
 							render: (w: number): string[] => {
+								if (!streaming && cachedThinkingLines && cachedThinkingWidth === w) {
+									return cachedThinkingLines;
+								}
 								const lines = thinkingMarkdown.render(Math.max(20, w - 4));
 								const frame = SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length];
 								const card = renderCardBox({
@@ -281,9 +313,17 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 										return Math.max(0, end - this.__thinkingStartTime);
 									})(),
 								});
-								return ["", ...card];
+								const result = ["", ...card];
+								if (!streaming) {
+									cachedThinkingLines = result;
+									cachedThinkingWidth = w;
+								}
+								return result;
 							},
-							invalidate: () => thinkingMarkdown.invalidate(),
+							invalidate: () => {
+								cachedThinkingLines = undefined;
+								thinkingMarkdown.invalidate();
+							},
 						};
 						this.contentContainer.addChild(thinkingCard as any);
 					}
@@ -319,10 +359,17 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 	if (options?.ToolExecutionComponent) {
 		const ToolClass = options.ToolExecutionComponent;
 		const origToolRender = ToolClass.prototype.render;
+		const origToolInvalidate = ToolClass.prototype.invalidate;
 		const origUpdateArgs = ToolClass.prototype.updateArgs;
 		const origUpdateResult = ToolClass.prototype.updateResult;
 		const origMarkExecutionStarted = ToolClass.prototype.markExecutionStarted;
 		const origSetArgsComplete = ToolClass.prototype.setArgsComplete;
+
+		ToolClass.prototype.invalidate = function (this: any): void {
+			this.__cachedCardLines = undefined;
+			this.__cachedCardWidth = undefined;
+			origToolInvalidate?.call(this);
+		};
 
 		function updateSpinnerState(comp: any) {
 			if (comp.__startTime === undefined && (comp.executionStarted || comp.isPartial)) {
@@ -336,6 +383,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 					comp.__spinnerInterval = setInterval(() => {
 						comp.ui?.requestRender?.();
 					}, 80);
+					comp.__spinnerInterval.unref?.();
 				}
 			} else if (comp.__spinnerInterval) {
 				clearInterval(comp.__spinnerInterval);
@@ -344,27 +392,35 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		}
 
 		ToolClass.prototype.updateArgs = function (this: any, args: any, isComplete = false) {
+			this.__cachedCardLines = undefined;
 			origUpdateArgs.call(this, args, isComplete);
 			updateSpinnerState(this);
 		};
 
 		ToolClass.prototype.markExecutionStarted = function (this: any) {
+			this.__cachedCardLines = undefined;
 			origMarkExecutionStarted?.call(this);
 			updateSpinnerState(this);
 		};
 
 		ToolClass.prototype.setArgsComplete = function (this: any) {
+			this.__cachedCardLines = undefined;
 			origSetArgsComplete?.call(this);
 			updateSpinnerState(this);
 		};
 
 		ToolClass.prototype.updateResult = function (this: any, result: any, isPartial = false) {
+			this.__cachedCardLines = undefined;
 			origUpdateResult.call(this, result, isPartial);
 			updateSpinnerState(this);
 		};
 
 		ToolClass.prototype.render = function (this: any, width: number): string[] {
 			if (this.hideComponent) return [];
+			const canCache = !this.isPartial && !this.expanded;
+			if (canCache && this.__cachedCardLines && this.__cachedCardWidth === width) {
+				return this.__cachedCardLines;
+			}
 
 			let rawLines: string[];
 			if (this.hasRendererDefinition?.() && this.getRenderShell?.() === "self") {
@@ -424,11 +480,17 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 				}
 			}
 
+			if (canCache && (!this.imageComponents || this.imageComponents.length === 0)) {
+				this.__cachedCardLines = lines;
+				this.__cachedCardWidth = width;
+			}
+
 			return lines;
 		};
 
 		restorers.push(() => {
 			ToolClass.prototype.render = origToolRender;
+			if (origToolInvalidate) ToolClass.prototype.invalidate = origToolInvalidate;
 			ToolClass.prototype.updateArgs = origUpdateArgs;
 			ToolClass.prototype.updateResult = origUpdateResult;
 			if (origMarkExecutionStarted) ToolClass.prototype.markExecutionStarted = origMarkExecutionStarted;
