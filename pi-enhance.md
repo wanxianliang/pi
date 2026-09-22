@@ -1,6 +1,6 @@
 # Pi Agent 增强扩展与源码修改说明 (vs 官方 upstream/main)
 
-> **当前基准版本**：`upstream/main @ 890f92088` (v0.86.1)  
+> **当前基准版本**：`upstream/main @ 1a584a7a5` (v0.87.0)  
 > **真实净增量比对命令**：`git diff upstream/main...HEAD` (三点比较，消除历史合并噪声)  
 > **同步脚本**：`bash update_code_from_pi.sh` (自动 fetch 校验、生成物冲突处理、锁文件生成与不变量校验)
 
@@ -21,11 +21,11 @@
 | `packages/coding-agent/src/core/extensions/index.ts` | 导出 `EnhancedContextResult` 与 `filterContextWithExtensions` |
 | `packages/coding-agent/src/core/extensions/runner.ts` | `createContext` 暴露 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool`，提供 `emitContextEnhancements` 与 `emitTools`，兼容上游 `normalizeBuildSystemPromptOptions` |
 | `packages/coding-agent/src/core/extensions/types.ts` | 声明 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool` 接口扩展，并在 `ContextEvent` / `ContextEventResult` / `ToolCallEventBase` / `ExtensionContextActions` 中声明扩展字段 |
-| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: ^0.86.1` 依赖（内部包版本对齐上游 0.86.1）及 `build:binary` 构建前置步骤 |
-| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (0.86.1) 依赖锁信息 |
+| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: ^0.87.0` 依赖（内部包版本对齐上游 0.87.0）及 `build:binary` 构建前置步骤 |
+| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (0.87.0) 依赖锁信息 |
 | `packages/coding-agent/npm-shrinkwrap.json` | 记录 `@earendil-works/pi-enhance-tui` shrinkwrap 信息 |
 | `package.json` | 在全局 `build` / `build:offline` 脚本中插入 `pi-enhance-tui` 构建步骤（兼容官方最新 `durable` 构建） |
-| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (0.86.1) workspace 软链接及依赖项 |
+| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (0.87.0) workspace 软链接及依赖项 |
 | `tsconfig.json` | 映射 `@earendil-works/pi-enhance-tui` 路径别名 |
 | `vitest.base.ts` | 映射 `@earendil-works/pi-enhance-tui` 测试路径别名 |
 | `.npmrc` | 配置 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true` |
@@ -99,10 +99,10 @@
   - `ExtensionContextActions` 中追加 `getAllToolDefinitions` 与 `emitAgentEvent` 回调类型。
 
 ### 8. 构建与工程配置修改
-- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: ^0.86.0` 依赖与 `build:binary` 前置构建。
+- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: ^0.87.0` 依赖与 `build:binary` 前置构建。
 - `package.json`：在根目录 `build` 与 `build:offline` 中添加 `packages/pi-enhance-tui` 的构建步骤。
 - `tsconfig.json` & `vitest.base.ts`：添加 `@earendil-works/pi-enhance-tui` 的路径映射及别名解析。
-- `package-lock.json`、`install-lock/package-lock.json`、`npm-shrinkwrap.json`：注册并锁定本地 workspace 包 (0.86.1)。
+- `package-lock.json`、`install-lock/package-lock.json`、`npm-shrinkwrap.json`：注册并锁定本地 workspace 包 (0.87.0)。
 - `.npmrc`：开启 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true`。
 - `.gitignore`：追加本地打包及临时文件夹忽略。
 

@@ -9,7 +9,9 @@ import {
 	FixedBottomEditorCompositor,
 	getUsageTokenTotal,
 	isAssistantUsage,
+	isCutShortcutInput,
 	isSelectAllShortcutInput,
+	isUndoShortcutInput,
 	registerPiUiCustomExtension,
 	renderBeautifiedEditorFrame,
 	renderDetailedTokenStatus,
@@ -597,6 +599,164 @@ test("compositor caches rootLines and avoids redundant terminal writes", () => {
 	// Calling repaint again with identical cluster should not write to terminal
 	compositor.requestRepaint();
 	assert.strictEqual(writeCount, writesBefore + 1);
+
+	compositor.dispose();
+});
+
+test("isUndoShortcutInput recognizes Cmd+Z, Ctrl+Z, and Ctrl+- sequences", () => {
+	assert.equal(isUndoShortcutInput("\x1a"), true);
+	assert.equal(isUndoShortcutInput("\x1f"), true);
+	assert.equal(isUndoShortcutInput("\x1b[122;9u"), true);
+	assert.equal(isUndoShortcutInput("\x1b[122;5u"), true);
+	assert.equal(isUndoShortcutInput("\x1b[27;9;122~"), true);
+	assert.equal(isUndoShortcutInput("z"), false);
+	assert.equal(isUndoShortcutInput("\x1b[97;9u"), false);
+});
+
+test("bottom editor handleInput with Undo restores text after edit and delete", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("initial text to restore");
+	editor.startSelection(0, 8);
+	editor.updateSelection(0, 12);
+	editor.finishSelection();
+	editor.deleteSelection();
+	assert.equal(editor.getText(), "initial  to restore");
+
+	// Trigger Undo via Cmd+Z Kitty sequence
+	editor.handleInput("\x1b[122;9u");
+	assert.equal(editor.getText(), "initial text to restore");
+
+	editor.dispose?.();
+});
+
+test("bottom editor handleInput with Cut copies and deletes selection or current line", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("first line\nsecond line");
+
+	assert.equal(isCutShortcutInput("\x18"), true);
+	assert.equal(isCutShortcutInput("\x1b[120;9u"), true);
+	// Cut with active selection
+	editor.startSelection(0, 0);
+	editor.updateSelection(0, 5);
+	editor.finishSelection();
+	editor.handleInput("\x18"); // Ctrl+X
+	assert.equal(editor.getText(), " line\nsecond line");
+
+	// Cut line when no selection exists
+	editor.clearSelection();
+	editor.state.cursorLine = 1;
+	editor.setCursorColumn(2);
+	editor.handleInput("\x18"); // Cuts line 1
+	assert.equal(editor.getText(), " line");
+
+	editor.dispose?.();
+});
+
+test("bottom editor multiline positioning accurately maps all visual rows and clamps end of line", () => {
+	const mockTui = { requestRender: () => {}, terminal: { rows: 24 } };
+	const theme = { fg: (_t: string, s: string) => s, bg: (_t: string, s: string) => s };
+	const state = {
+		beautifiedInputEnabled: true,
+		getTheme: () => theme,
+		getFrameStatus: () => ({ model: null, thinking: null, context: null, elapsed: null }),
+	};
+	const editor = createBottomInputEditor(mockTui, theme, {}, state);
+	editor.setText("line 0 short\nline 1 with more text\nline 2 end");
+	editor.render(80);
+
+	// Click row 0, col 5
+	const p0 = editor.mapVisualPosToLogicalPos(0, 5);
+	assert.equal(p0.line, 0);
+	assert.equal(p0.col, 5);
+
+	// Click row 1, col 7
+	const p1 = editor.mapVisualPosToLogicalPos(1, 7);
+	assert.equal(p1.line, 1);
+	assert.equal(p1.col, 7);
+
+	// Click row 2 beyond end of line (col 50 on 10-char line) clamps to end
+	const p2Clamped = editor.mapVisualPosToLogicalPos(2, 50);
+	assert.equal(p2Clamped.line, 2);
+	assert.equal(p2Clamped.col, "line 2 end".length);
+
+	editor.dispose?.();
+});
+
+test("compositor scrolls output area on mouse wheel and ignores scroll over input box", async () => {
+	const mockTerminal = {
+		rows: 24,
+		columns: 80,
+		write: (_data: string) => {},
+	};
+	const fakeRoot = {
+		render: () => {
+			const lines = [];
+			for (let i = 1; i <= 60; i++) lines.push(`log line ${i}`);
+			return lines;
+		},
+	};
+	let inputListener: ((data: string) => void) | undefined;
+	const mockTui = {
+		render: (_w: number) => fakeRoot.render(),
+		doRender: () => {},
+		invalidate: () => {},
+		addInputListener: (fn: (data: string) => void) => {
+			inputListener = fn;
+			return () => {
+				inputListener = undefined;
+			};
+		},
+		terminal: mockTerminal,
+	};
+	const compositor = new FixedBottomEditorCompositor({
+		tui: mockTui,
+		terminal: mockTerminal as any,
+		renderCluster: () => ({ lines: ["status line", "editor border", "editor line", "editor bottom"] }),
+	});
+	compositor.install();
+	mockTui.render(80);
+
+	// Initial state: at bottom, scrollOffset is 0
+	assert.strictEqual((compositor as any).scrollOffset, 0);
+
+	const sendInput = (data: string) => {
+		if (inputListener) inputListener(data);
+	};
+
+	// 1. Mouse wheel UP over output area (row 10 <= 20)
+	sendInput("\x1b[<64;10;10M");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.strictEqual((compositor as any).scrollOffset, 3);
+
+	// Another wheel UP
+	sendInput("\x1b[<64;10;10M");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.strictEqual((compositor as any).scrollOffset, 6);
+
+	// 2. Mouse wheel over input box (row 23 > 20)
+	// Input box does not listen to scroll events; scrollOffset must not change
+	sendInput("\x1b[<64;10;23M");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.strictEqual((compositor as any).scrollOffset, 6);
+
+	// 3. Mouse wheel DOWN over output area (row 10 <= 20)
+	sendInput("\x1b[<65;10;10M");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.strictEqual((compositor as any).scrollOffset, 3);
 
 	compositor.dispose();
 });

@@ -247,6 +247,33 @@ export function isCutShortcutInput(data: string): boolean {
 	);
 }
 
+export function isUndoShortcutInput(data: string): boolean {
+	if (isKeyRelease(data)) return false;
+	if (
+		matchesKey(data, "super+z") ||
+		matchesKey(data, "ctrl+z") ||
+		matchesKey(data, "ctrl+-") ||
+		matchesKey(data, "super+shift+z") ||
+		matchesKey(data, "ctrl+shift+z") ||
+		matchesKey(data, "alt+z")
+	) {
+		return true;
+	}
+	if (
+		data === "\x1a" ||
+		data === "\x1b\x1a" ||
+		data === "\x1f" ||
+		data === "\x1b\x1f" ||
+		data === "\x1bz" ||
+		data === "\x1bZ"
+	) {
+		return true;
+	}
+	return (
+		/^\x1b\[(?:122|90);(?:3|5|6|9|10)(?::[12])?u$/.test(data) || /^\x1b\[27;(?:3|5|6|9|10);(?:122|90)~$/.test(data)
+	);
+}
+
 export function normalizeShortcut(shortcut: string): string {
 	const parts = shortcut
 		.trim()

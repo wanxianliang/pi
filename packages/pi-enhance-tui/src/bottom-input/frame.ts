@@ -87,12 +87,13 @@ export function wordWrapLine(line: string, maxWidth: number): TextChunk[] {
 import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { copyToSystemClipboard } from "../clipboard.ts";
 import { sanitizeTerminalText } from "./sanitize.ts";
-import { isCopyShortcutInput, isCutShortcutInput, isSelectAllShortcutInput } from "./shortcuts.ts";
+import { isCopyShortcutInput, isCutShortcutInput, isSelectAllShortcutInput, isUndoShortcutInput } from "./shortcuts.ts";
 import type { BeautifiedEditorFrameInput, BottomInputEditorState, BottomInputFrameStatus, ThemeLike } from "./types.ts";
 
 export const FIXED_EDITOR_CURSOR_MARKER = CURSOR_MARKER;
 export const MIN_FRAME_WIDTH = 8;
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
 export function renderBeautifiedEditorFrame(input: BeautifiedEditorFrameInput): string[] {
 	const width = Number.isFinite(input.width) ? Math.max(0, Math.floor(input.width)) : 0;
@@ -630,18 +631,32 @@ export class EnhancedEditorBase extends Editor {
 		const line = lines[pos.line] || "";
 		if (line.length === 0) return;
 
-		let startCol = Math.min(pos.col, line.length);
-		let endCol = startCol;
+		const targetCol = Math.min(pos.col, line.length);
+		let startCol = targetCol;
+		let endCol = targetCol;
 
-		const isWordChar = (ch: string) => /[\p{L}\p{N}_]/u.test(ch);
-		const charAt = line[startCol] || line[startCol - 1] || "";
-		const testFn = isWordChar(charAt) ? isWordChar : (ch: string) => !/\s/.test(ch);
-
-		while (startCol > 0 && testFn(line[startCol - 1]!)) {
-			startCol--;
+		for (const seg of wordSegmenter.segment(line)) {
+			const segStart = seg.index;
+			const segEnd = seg.index + seg.segment.length;
+			if (targetCol >= segStart && targetCol <= segEnd) {
+				if (seg.isWordLike) {
+					startCol = segStart;
+					endCol = segEnd;
+					break;
+				}
+				if (!/^\s+$/u.test(seg.segment)) {
+					startCol = segStart;
+					endCol = segEnd;
+				}
+			}
 		}
-		while (endCol < line.length && testFn(line[endCol]!)) {
-			endCol++;
+
+		if (startCol === endCol) {
+			const isWordChar = (ch: string) => /[\p{L}\p{N}_]/u.test(ch);
+			const charAt = line[targetCol] || line[targetCol - 1] || "";
+			const testFn = isWordChar(charAt) ? isWordChar : (ch: string) => !/\s/.test(ch);
+			while (startCol > 0 && testFn(line[startCol - 1]!)) startCol--;
+			while (endCol < line.length && testFn(line[endCol]!)) endCol++;
 		}
 
 		if (startCol < endCol) {
@@ -725,27 +740,53 @@ export class EnhancedEditorBase extends Editor {
 	}
 
 	mapVisualPosToLogicalPos(visualRow: number, visualCol: number): { line: number; col: number } {
-		const lines: string[] = (this as any).state.lines;
 		const width = Math.max(1, (this as any).lastWidth || 80);
-		const visualLines = computeEditorVisualLines(lines, width);
+		const visualLines: Array<{ logicalLine: number; startCol: number; length: number }> =
+			typeof (this as any).buildVisualLineMap === "function"
+				? (this as any).buildVisualLineMap(width)
+				: computeEditorVisualLines((this as any).state?.lines ?? [""], width);
 
-		if (visualLines.length === 0) return { line: 0, col: 0 };
+		if (!visualLines || visualLines.length === 0) {
+			return { line: (this as any).state?.cursorLine ?? 0, col: 0 };
+		}
 		const scrollOffset = (this as any).scrollOffset || 0;
 		const targetVLIndex = Math.max(0, Math.min(scrollOffset + visualRow, visualLines.length - 1));
-		const vl = visualLines[targetVLIndex]!;
-		if (vl.length === 0) return { line: vl.logicalLine, col: 0 };
+		const vl = visualLines[targetVLIndex];
+		if (!vl) return { line: 0, col: 0 };
 
-		let accW = 0;
-		let colOff = 0;
-		for (const { segment: seg } of segmenter.segment(vl.text)) {
-			const gW = visibleWidth(seg);
-			if (accW + gW / 2 >= visualCol) break;
-			accW += gW;
-			colOff += seg.length;
+		const logicalLine = (this as any).state.lines[vl.logicalLine] ?? "";
+		const chunkEnd = vl.startCol + vl.length;
+		const chunk = logicalLine.slice(vl.startCol, chunkEnd);
+
+		let visibleColumn = 0;
+		let targetIndex = chunk.length;
+		let lastGraphemeIndex = 0;
+		const segments =
+			typeof (this as any).segment === "function"
+				? (this as any).segment(chunk, "grapheme")
+				: segmenter.segment(chunk);
+
+		for (const grapheme of segments) {
+			const segText = grapheme.segment ?? grapheme;
+			const segIndex = typeof grapheme.index === "number" ? grapheme.index : visibleColumn;
+			const gW = visibleWidth(segText);
+			lastGraphemeIndex = segIndex;
+			if (visualCol < visibleColumn + gW) {
+				const mid = visibleColumn + gW / 2;
+				targetIndex = visualCol < mid ? segIndex : segIndex + segText.length;
+				break;
+			}
+			visibleColumn += gW;
 		}
+		const isLastSegment =
+			targetVLIndex === visualLines.length - 1 || visualLines[targetVLIndex + 1]?.logicalLine !== vl.logicalLine;
+		if (!isLastSegment && targetIndex === chunk.length && chunk.length > 0) {
+			targetIndex = lastGraphemeIndex;
+		}
+
 		return {
 			line: vl.logicalLine,
-			col: Math.min(vl.startCol + colOff, vl.startCol + vl.length),
+			col: Math.min(vl.startCol + targetIndex, ((this as any).state.lines[vl.logicalLine] || "").length),
 		};
 	}
 
@@ -766,6 +807,13 @@ export class EnhancedEditorBase extends Editor {
 			return;
 		}
 
+		if (isUndoShortcutInput(data)) {
+			this.clearSelection();
+			(this as any).undo?.();
+			this.tui.requestRender();
+			return;
+		}
+
 		if (isCopyShortcutInput(data)) {
 			if (this.hasSelectionRange()) {
 				const text = this.getSelectedText();
@@ -780,6 +828,30 @@ export class EnhancedEditorBase extends Editor {
 				void copyToSystemClipboard(text);
 				this.deleteSelection();
 				return;
+			}
+			const lines = (this as any).state.lines;
+			const cursorLine = (this as any).state.cursorLine;
+			if (lines && lines.length > 0 && cursorLine >= 0 && cursorLine < lines.length) {
+				const lineText = lines[cursorLine] || "";
+				if (lineText.length > 0) {
+					void copyToSystemClipboard(lineText);
+					(this as any).pushUndoSnapshot?.();
+					if (lines.length === 1) {
+						lines[0] = "";
+						this.setCursorColumn(0);
+					} else {
+						lines.splice(cursorLine, 1);
+						(this as any).state.cursorLine = Math.min(cursorLine, lines.length - 1);
+						const targetCol = Math.min(
+							(this as any).state.cursorCol,
+							(lines[(this as any).state.cursorLine] || "").length,
+						);
+						this.setCursorColumn(targetCol);
+					}
+					this.onChange?.(this.getText());
+					this.tui.requestRender();
+					return;
+				}
 			}
 		}
 
@@ -889,30 +961,38 @@ export class EnhancedEditorBase extends Editor {
 	override render(width: number): string[] {
 		if (!this.stateRef.beautifiedInputEnabled || width < MIN_FRAME_WIDTH) return super.render(width);
 		const innerWidth = Math.max(1, Math.floor(width) - 4);
+
+		// Guarantee that focused is true during render so super.render emits CURSOR_MARKER and visible cursor
+		const prevFocused = this.focused;
+		this.focused = true;
 		const base = super.render(innerWidth);
+		this.focused = prevFocused;
+
+		const { editorLines, popupLines } = splitNativeEditorRender(base);
 		const range = this.getNormalizedRange();
+
 		const layoutWidth = (this as any).lastWidth || Math.max(1, innerWidth - 1);
-		const visualLines = computeEditorVisualLines(this.getLines(), layoutWidth);
+		const visualLines: Array<{ logicalLine: number; startCol: number; length: number }> =
+			typeof (this as any).buildVisualLineMap === "function"
+				? (this as any).buildVisualLineMap(layoutWidth)
+				: computeEditorVisualLines(this.getLines(), layoutWidth);
 		const scrollOffset = (this as any).scrollOffset || 0;
 		const cursor = {
 			line: (this as any).state.cursorLine,
 			col: (this as any).state.cursorCol,
-			visible: this.isCursorBlinkVisible(),
+			visible: true,
 		};
-		const { editorLines, popupLines } = splitNativeEditorRender(base);
 		const styledEditorLines = editorLines.map((_line, idx) => {
 			const vl = visualLines[scrollOffset + idx];
 			if (!vl) return _line;
-			return highlightVisualLineSelection(
-				vl.text,
-				vl.startCol,
-				vl.length,
-				vl.logicalLine,
-				range,
-				cursor,
-				vl.isLastChunk ?? true,
-			);
+			const line = (this as any).state.lines[vl.logicalLine] || "";
+			const text = line.slice(vl.startCol, vl.startCol + vl.length);
+			const isLastChunk =
+				scrollOffset + idx === visualLines.length - 1 ||
+				visualLines[scrollOffset + idx + 1]?.logicalLine !== vl.logicalLine;
+			return highlightVisualLineSelection(text, vl.startCol, vl.length, vl.logicalLine, range, cursor, isLastChunk);
 		});
+
 		const decoratedBase = isNativeEditorRule(base[0] ?? "")
 			? [base[0]!, ...styledEditorLines, ...popupLines]
 			: [...styledEditorLines, ...popupLines];

@@ -69,10 +69,10 @@ type ScrollMetrics = {
 
 const COMPOSITOR_OWNER = Symbol("pi.enhance.tui.fixedBottomEditor.compositorOwner.v1");
 const DEFAULT_COLUMNS = 80;
+const WHEEL_REPAINT_COALESCE_MS = 8;
 const DEFAULT_ROWS = 24;
 const DOUBLE_CLICK_MS = 500;
 const CONTEXT_MENU_MOUSE_REPORTING_PAUSE_MS = 1200;
-const WHEEL_REPAINT_COALESCE_MS = 8;
 
 export function enterAlternateScreen(): string {
 	return "\x1b[?1049h";
@@ -901,7 +901,12 @@ export class FixedBottomEditorCompositor {
 		for (const packet of packets) {
 			const delta = mouseScrollDelta(packet);
 			if (delta !== 0) {
-				wheelDelta += delta;
+				const scrollableRows =
+					this.visibleScrollableRows > 0 ? this.visibleScrollableRows : this.getScrollableRows();
+				// Only scroll output area; the input box does not listen to scroll events
+				if (packet.row <= scrollableRows) {
+					wheelDelta += delta;
+				}
 				continue;
 			}
 
@@ -1007,14 +1012,14 @@ export class FixedBottomEditorCompositor {
 				visualRow = 0;
 				visualCol = 0;
 			} else if (editorRow >= editorCount - 1) {
-				visualRow = Math.max(0, editorCount - 3);
+				visualRow = maxContentRows - 1;
 				visualCol = Math.max(0, packet.col - 1 - 2);
 			} else {
-				visualRow = editorRow - 1;
+				visualRow = Math.min(editorRow - 1, maxContentRows - 1);
 				visualCol = Math.max(0, packet.col - 1 - 2);
 			}
 		} else {
-			visualRow = editorRow;
+			visualRow = Math.min(editorRow, maxContentRows - 1);
 			visualCol = Math.max(0, packet.col - 1);
 		}
 
