@@ -1,6 +1,6 @@
 {
 	"name": "@earendil-works/pi-enhance-tui",
-	"version": "0.86.1",
+	"version": "0.87.0",
 	"description": "High-performance enhancements and Bun runtime optimizations for pi-tui",
 	"type": "module",
 	"main": "dist/index.js",
@@ -39,7 +39,7 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/pi-tui": "^0.86.1"
+		"@earendil-works/pi-tui": "^0.87.0"
 	},
 	"devDependencies": {
 		"shx": "0.4.0"
