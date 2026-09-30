@@ -31,4 +31,18 @@ for dir in "${PACKAGES[@]}"; do
 	echo -e " Installed ${YELLOW}$name${NC} v$version"
 done
 
+# Ensure external runtime dependencies (e.g. quickjs-wasi for codemode) are present in bun global scope
+GLOBAL_NM="$HOME/.bun/install/global/node_modules"
+for ext_dep in quickjs-wasi esbuild; do
+	if [ -d "$ROOT/node_modules/$ext_dep" ]; then
+		rm -rf "$GLOBAL_NM/$ext_dep"
+		cp -R "$ROOT/node_modules/$ext_dep" "$GLOBAL_NM/"
+		echo -e "  Synced external dependency ${YELLOW}$ext_dep${NC}"
+	fi
+done
+if [ -d "$ROOT/node_modules/@esbuild" ]; then
+	mkdir -p "$GLOBAL_NM/@esbuild"
+	cp -R "$ROOT/node_modules/@esbuild"/. "$GLOBAL_NM/@esbuild"/
+fi
+
 echo -e "${GREEN}✓ Build and bun global install completed${NC}"
