@@ -385,7 +385,10 @@ export async function executeToolWithExtensions(
 	let isError = false;
 
 	try {
-		res = await toolDef.execute(toolCallId, execInput, options?.signal ?? ctx.signal, onUpdate, ctx);
+		const toolContext = (runner as any).createToolContext
+			? (runner as any).createToolContext(toolCallId, options?.signal ?? ctx.signal)
+			: (ctx as any);
+		res = await toolDef.execute(toolCallId, execInput, options?.signal ?? ctx.signal, onUpdate, toolContext);
 
 		ctx.emitAgentEvent?.({
 			type: "tool_execution_end",
