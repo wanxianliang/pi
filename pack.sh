@@ -30,7 +30,7 @@ for arg in "$@"; do
 	esac
 done
 
-PACKAGES=(chord ai protocol tui pi-enhance-tui telemetry agent client server coding-agent session-backends/sqlite-node)
+PACKAGES=(chord ai protocol tui pi-enhance-tui telemetry agent durable codemode mcp client server coding-agent)
 
 if [ "$SKIP_BUILD" -eq 1 ]; then
 	echo -e "${YELLOW}[1/4] Skipping build step (--skip-build)...${NC}"
