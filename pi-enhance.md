@@ -16,8 +16,8 @@
 | `packages/ai/scripts/generate-models.ts` | 增加离线/受限网络下的模型元数据本地缓存与回退容错机制，确保 hydrate-model-data 在无外网环境平滑运行 |
 | `packages/coding-agent/src/core/sdk.ts` | 在 `streamFn` 中单行调用 `applyContextEnhancements(headerRunner, context)` 获取增强后的上下文，并将其同步传递给 `cacheWarmer.start` 与 `modelRuntime.streamSimple`（深度适配官方 0.86.0 重构提取的 `buildRequestOptions` 与 `CacheWarmer` 缓存预热机制） |
 | `packages/coding-agent/src/modes/interactive/tui-renderer.ts` | 仅在 `createInteractiveTui` 入口单点调用 `initPiEnhanceTui({ ... })` 挂载原型链增强，并在复制选区时单行调用 `stripCardBorders(text)` 去除卡片边框 |
-| `packages/coding-agent/src/core/agent-session.ts` | 仅在 `runner.bindCore` 的 `contextActions` 中注册 `getAllToolDefinitions` 与 `emitAgentEvent`，并在 `_isAllowedTool` 中追加 `isToolEnabledInConfig` 配置过滤 |
-| `packages/coding-agent/src/core/resource-loader.ts` | `getExtensions()` 与 `getSkills()` 返回前分别单行经过 `filterEnabledExtensions` 与 `filterEnabledSkills` 本地过滤；扩展加载入口 `loadExtensionPaths()` 与 `loadFinalExtensionSet()` 前单行调用 `filterEnabledExtensionPaths` 过滤被禁用扩展路径，确保禁用扩展不会被注册 |
+| `packages/coding-agent/src/core/agent-session.ts` | 仅在 `runner.bindCore` 的 `contextActions` 中注册 `getAllToolDefinitions` 与 `emitAgentEvent`，并在 `_isAllowedTool` 中追加 `isToolEnabledInConfig` 配置过滤；在 `_refreshToolRegistry` 过滤前单行调用 `setLastFullTools` 保存全量工具定义到内存 |
+| `packages/coding-agent/src/core/resource-loader.ts` | `getExtensions()` 与 `getSkills()` 返回前分别单行经过 `filterEnabledExtensions` 与 `filterEnabledSkills` 本地过滤；扩展加载入口 `loadExtensionPaths()` 与 `loadFinalExtensionSet()` 前单行调用 `filterEnabledExtensionPaths` 过滤被禁用扩展路径，并调用 `setLastFullExtensionPaths` 保存全量扩展路径；`updateSkillsFromPaths` 过滤前调用 `setLastFullSkills` 保存全量技能 |
 | `packages/coding-agent/src/core/extensions/index.ts` | 导出 `EnhancedContextResult` 与 `filterContextWithExtensions` |
 | `packages/coding-agent/src/core/extensions/runner.ts` | `createContext` 暴露 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool`，提供 `emitContextEnhancements` 与 `emitTools`，兼容上游 `normalizeBuildSystemPromptOptions` |
 | `packages/coding-agent/src/core/extensions/types.ts` | 声明 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool` 接口扩展，并在 `ContextEvent` / `ContextEventResult` / `ToolCallEventBase` / `ExtensionContextActions` 中声明扩展字段 |
@@ -113,7 +113,8 @@
 ## 三、独立新增文件及模块说明（简要文件名及功能）
 
 ### 1. `packages/coding-agent/src/core/extensions/pi-extension-enhance.ts`
-- **功能说明**：实现 Extension 上下文增强器、SDK `applyContextEnhancements` 辅助函数、动态 Tool 执行钩子包装器（`executeToolWithExtensions`）与本地配置过滤逻辑（`isToolEnabledInConfig`、`filterEnabledExtensions`、`filterEnabledSkills`）。
+- **功能说明**：实现 Extension 上下文增强器、SDK `applyContextEnhancements` 辅助函数、动态 Tool 执行钩子包装器（`executeToolWithExtensions`）与本地配置过滤逻辑（`isToolEnabledInConfig`、`filterEnabledExtensions`、`filterEnabledSkills`、`filterEnabledExtensionPaths`）。
+- **内存全量快照**：新增 `setLastFullExtensionPaths` / `getLastFullExtensionPaths`、`setLastFullSkills` / `getLastFullSkills`、`setLastFullTools` / `getLastFullTools`，在过滤前把全量扩展路径/技能/工具保存到内存，供 PiManager 界面直接读取。
 
 ### 2. `packages/coding-agent/test/pi-extension-enhance.test.ts`
 - **功能说明**：测试 Extension 增强逻辑、工具包装执行钩子与本地扩展/技能过滤功能。
