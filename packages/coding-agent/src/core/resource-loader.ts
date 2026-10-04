@@ -849,6 +849,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 			});
 		}
 		const resolvedSkills = this.skillsOverride ? this.skillsOverride(skillsResult) : skillsResult;
+		// 过滤前保存全量技能到内存，供 PiManager 界面读取
+		setLastFullSkills(resolvedSkills.skills);
 		this.skills = resolvedSkills.skills.map((skill) => ({
 			...skill,
 			sourceInfo:

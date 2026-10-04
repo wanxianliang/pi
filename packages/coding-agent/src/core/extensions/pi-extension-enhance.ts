@@ -142,6 +142,19 @@ export function getLastFullExtensionPaths(): string[] {
 	return lastFullExtensionPaths;
 }
 
+let lastFullSkills: any[] = [];
+
+/** 过滤前保存全量技能列表，供 PiManager 界面直接读取（内存） */
+export function setLastFullSkills(skills: any[]): void {
+	lastFullSkills = skills;
+	(globalThis as any).__pi_full_skills__ = skills;
+}
+
+/** 获取过滤前保存的全量技能列表 */
+export function getLastFullSkills(): any[] {
+	return lastFullSkills;
+}
+
 export function filterEnabledExtensionPaths(extensionPaths: string[]): string[] {
 	const cfg = loadEnhanceConfig();
 	if (cfg.extensions?.enabled === false) {
