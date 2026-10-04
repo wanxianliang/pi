@@ -155,6 +155,19 @@ export function getLastFullSkills(): any[] {
 	return lastFullSkills;
 }
 
+let lastFullTools: any[] = [];
+
+/** 过滤前保存全量工具定义，供 PiManager 界面计算 is_registered 等状态 */
+export function setLastFullTools(tools: any[]): void {
+	lastFullTools = tools;
+	(globalThis as any).__pi_full_tools__ = tools;
+}
+
+/** 获取过滤前保存的全量工具定义 */
+export function getLastFullTools(): any[] {
+	return lastFullTools;
+}
+
 export function filterEnabledExtensionPaths(extensionPaths: string[]): string[] {
 	const cfg = loadEnhanceConfig();
 	if (cfg.extensions?.enabled === false) {

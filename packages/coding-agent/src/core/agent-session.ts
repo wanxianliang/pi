@@ -112,7 +112,7 @@ import {
 	type TurnStartEvent,
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
-import { filterAllToolDefinitions, isToolEnabledInConfig } from "./extensions/pi-extension-enhance.ts";
+import { filterAllToolDefinitions, isToolEnabledInConfig, setLastFullTools } from "./extensions/pi-extension-enhance.ts";
 
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
@@ -3463,6 +3463,34 @@ export class AgentSession {
 		);
 		const previousActiveToolNames = this.getActiveToolNames();
 		const allowedToolNames = this._allowedToolNames;
+
+		// 过滤前保存全量工具到内存，供 PiManager 界面读取（含未注册/禁用工具）
+		setLastFullTools([
+			...Array.from(this._baseToolDefinitions.entries()).map(([name, definition]) => ({
+				name,
+				description: definition.description,
+				parameters: definition.parameters,
+				promptGuidelines: definition.promptGuidelines,
+				sourceInfo: createSyntheticSourceInfo(`${BUILTIN_PATH_PREFIX}${name}`, { source: "builtin" }),
+				source: "builtin",
+			})),
+			...this._extensionRunner.getAllRegisteredTools().map((tool: any) => ({
+				name: tool.definition.name,
+				description: tool.definition.description,
+				parameters: tool.definition.parameters,
+				promptGuidelines: tool.definition.promptGuidelines,
+				sourceInfo: tool.sourceInfo,
+				source: tool.sourceInfo?.source || "plugin",
+			})),
+			...this._customTools.map((definition: any) => ({
+				name: definition.name,
+				description: definition.description,
+				parameters: definition.parameters,
+				promptGuidelines: definition.promptGuidelines,
+				sourceInfo: createSyntheticSourceInfo(`<sdk:${definition.name}>`, { source: "sdk" }),
+				source: "sdk",
+			})),
+		]);
 
 		const registeredTools = this._extensionRunner.getAllRegisteredTools();
 		const allCustomTools = [
