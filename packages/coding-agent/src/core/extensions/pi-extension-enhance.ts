@@ -18,7 +18,16 @@ const ENHANCE_CONFIG_PATH = "/Users/sean/Documents/node-base/pi-agent-suite/conf
 export interface PiEnhanceConfig {
 	skills?: { enabled?: boolean; disabledNames?: string[] };
 	extensions?: { enabled?: boolean; disabledNames?: string[] };
-	tools?: { enabled?: boolean; builtinEnabled?: boolean; pluginEnabled?: boolean; disabledNames?: string[] };
+	tools?: {
+		enabled?: boolean;
+		builtinEnabled?: boolean;
+		pluginEnabled?: boolean;
+		disabledNames?: string[];
+		notRegisterTools?: string[];
+		llmTools?: string[];
+		tieredEnabled?: boolean;
+		tieredTools?: string[];
+	};
 	webPort?: number;
 }
 
@@ -118,6 +127,19 @@ export function filterAllToolDefinitions(
 		}
 	}
 	return map;
+}
+
+let lastFullExtensionPaths: string[] = [];
+
+/** 过滤前保存全量扩展路径，供 PiManager 界面直接读取（内存） */
+export function setLastFullExtensionPaths(paths: string[]): void {
+	lastFullExtensionPaths = paths;
+	(globalThis as any).__pi_full_extension_paths__ = paths;
+}
+
+/** 获取过滤前保存的全量扩展路径 */
+export function getLastFullExtensionPaths(): string[] {
+	return lastFullExtensionPaths;
 }
 
 export function filterEnabledExtensionPaths(extensionPaths: string[]): string[] {
@@ -495,4 +517,12 @@ export async function applyContextEnhancements<T extends TranscriptContext | Con
 	};
 
 	return result as T;
+}
+
+export function isToolTieredDisclosure(name: string, config?: PiEnhanceConfig): boolean {
+	const cfg = config ?? loadEnhanceConfig();
+	if (cfg.tools?.tieredEnabled === false) return false;
+	const tieredList = cfg.tools?.tieredTools;
+	if (!Array.isArray(tieredList) || tieredList.length === 0) return false;
+	return tieredList.includes(name);
 }

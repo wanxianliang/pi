@@ -749,6 +749,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 		extensionPaths: string[],
 		preTrustExtensions: LoadExtensionsResult | undefined,
 	): Promise<LoadExtensionsResult> {
+		// 保存过滤前全量扩展路径到内存，供 PiManager 界面读取
+		setLastFullExtensionPaths(extensionPaths);
 		// Without a pre-trust pass nothing is preloaded, and inline extensions load here.
 		const preloaded = preTrustExtensions?.extensions ?? [];
 		const preloadedByPath = new Map(
