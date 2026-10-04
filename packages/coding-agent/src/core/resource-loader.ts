@@ -17,7 +17,11 @@ import {
 	loadExtensionFromFactory,
 	loadExtensionsCached,
 } from "./extensions/loader.ts";
-import { filterEnabledExtensions, filterEnabledSkills } from "./extensions/pi-extension-enhance.ts";
+import {
+	filterEnabledExtensionPaths,
+	filterEnabledExtensions,
+	filterEnabledSkills,
+} from "./extensions/pi-extension-enhance.ts";
 import type {
 	Extension,
 	ExtensionFactory,
@@ -675,9 +679,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliEnabledExtensions = cliExtensionPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		// Built-in extensions wait for the final pass: project settings can disable them, and a loaded
 		// extension cannot be unloaded.
-		const extensionPaths = (
-			this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions)
-		).filter((path) => !path.startsWith(BUILTIN_PATH_PREFIX));
+		const extensionPaths = filterEnabledExtensionPaths(
+			(this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions)).filter(
+				(path) => !path.startsWith(BUILTIN_PATH_PREFIX),
+			),
+		);
 		const metadataByPath = new Map(
 			[...resolvedPaths.extensions, ...cliExtensionPaths.extensions].map((resource) => [
 				resource.path,
@@ -706,6 +712,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 	/** Load extension paths: files from disk and `builtin:<name>` paths from the built-in extensions. */
 	private async loadExtensionPaths(paths: string[], runtime?: ExtensionRuntime): Promise<LoadExtensionsResult> {
+		// 极简单行委托：加载前按本地配置过滤被禁用扩展，确保它们不会被注册
+		paths = filterEnabledExtensionPaths(paths);
 		const isBuiltinPath = (path: string) => path.startsWith(BUILTIN_PATH_PREFIX);
 		const result = await loadExtensionsCached(
 			paths.filter((path) => !isBuiltinPath(path)),

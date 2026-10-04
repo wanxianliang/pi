@@ -1,6 +1,6 @@
 # Pi Agent 增强扩展与源码修改说明 (vs 官方 upstream/main)
 
-> **当前基准版本**：`upstream/main @ 1b347794e` (v0.99.1)
+> **当前基准版本**：`upstream/main @ b271b0a52` (v1.0.0)
 > **真实净增量比对命令**：`git diff upstream/main...HEAD` (三点比较，消除历史合并噪声)  
 > **同步脚本**：`bash update_code_from_pi.sh` (自动 fetch 校验、生成物冲突处理、锁文件生成与不变量校验)
 
@@ -16,16 +16,16 @@
 | `packages/ai/scripts/generate-models.ts` | 增加离线/受限网络下的模型元数据本地缓存与回退容错机制，确保 hydrate-model-data 在无外网环境平滑运行 |
 | `packages/coding-agent/src/core/sdk.ts` | 在 `streamFn` 中单行调用 `applyContextEnhancements(headerRunner, context)` 获取增强后的上下文，并将其同步传递给 `cacheWarmer.start` 与 `modelRuntime.streamSimple`（深度适配官方 0.86.0 重构提取的 `buildRequestOptions` 与 `CacheWarmer` 缓存预热机制） |
 | `packages/coding-agent/src/modes/interactive/tui-renderer.ts` | 仅在 `createInteractiveTui` 入口单点调用 `initPiEnhanceTui({ ... })` 挂载原型链增强，并在复制选区时单行调用 `stripCardBorders(text)` 去除卡片边框 |
-| `packages/coding-agent/src/core/agent-session.ts` | 仅在 `runner.bindCore` 的 `contextActions` 中注册 `getAllToolDefinitions` 与 `emitAgentEvent`，并在 `isAllowedTool` 中追加 `isToolEnabledInConfig` 配置过滤 |
-| `packages/coding-agent/src/core/resource-loader.ts` | `getExtensions()` 与 `getSkills()` 返回前分别单行经过 `filterEnabledExtensions` 与 `filterEnabledSkills` 本地过滤 |
+| `packages/coding-agent/src/core/agent-session.ts` | 仅在 `runner.bindCore` 的 `contextActions` 中注册 `getAllToolDefinitions` 与 `emitAgentEvent`，并在 `_isAllowedTool` 中追加 `isToolEnabledInConfig` 配置过滤 |
+| `packages/coding-agent/src/core/resource-loader.ts` | `getExtensions()` 与 `getSkills()` 返回前分别单行经过 `filterEnabledExtensions` 与 `filterEnabledSkills` 本地过滤；扩展加载入口 `loadExtensionPaths()` 与 `loadFinalExtensionSet()` 前单行调用 `filterEnabledExtensionPaths` 过滤被禁用扩展路径，确保禁用扩展不会被注册 |
 | `packages/coding-agent/src/core/extensions/index.ts` | 导出 `EnhancedContextResult` 与 `filterContextWithExtensions` |
 | `packages/coding-agent/src/core/extensions/runner.ts` | `createContext` 暴露 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool`，提供 `emitContextEnhancements` 与 `emitTools`，兼容上游 `normalizeBuildSystemPromptOptions` |
 | `packages/coding-agent/src/core/extensions/types.ts` | 声明 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool` 接口扩展，并在 `ContextEvent` / `ContextEventResult` / `ToolCallEventBase` / `ExtensionContextActions` 中声明扩展字段 |
-| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: ^0.99.1` 依赖（内部包版本对齐上游 0.99.1）及 `build:binary` 构建前置步骤 |
-| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (0.99.1) 依赖锁信息 |
+| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: ^1.0.0` 依赖（内部包版本对齐上游 1.0.0）及 `build:binary` 构建前置步骤 |
+| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (1.0.0) 依赖锁信息 |
 | `packages/coding-agent/npm-shrinkwrap.json` | 记录 `@earendil-works/pi-enhance-tui` shrinkwrap 信息 |
 | `package.json` | 在全局 `build` / `build:offline` 脚本中插入 `pi-enhance-tui` 构建步骤（兼容官方最新 `durable`、`codemode` 与 `mcp` 构建） |
-| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (0.99.1) workspace 软链接及依赖项 |
+| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (1.0.0) workspace 软链接及依赖项 |
 | `tsconfig.json` | 映射 `@earendil-works/pi-enhance-tui` 路径别名 |
 | `vitest.base.ts` | 映射 `@earendil-works/pi-enhance-tui` 测试路径别名 |
 | `.npmrc` | 配置 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true` |
@@ -101,10 +101,10 @@
   - `ExtensionContextActions` 中追加 `getAllToolDefinitions` 与 `emitAgentEvent` 回调类型。
 
 ### 8. 构建与工程配置修改
-- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: ^0.99.1` 依赖与 `build:binary` 前置构建。
+- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: ^1.0.0` 依赖与 `build:binary` 前置构建。
 - `package.json`：在根目录 `build` 与 `build:offline` 中添加 `packages/pi-enhance-tui` 的构建步骤。
 - `tsconfig.json` & `vitest.base.ts`：添加 `@earendil-works/pi-enhance-tui` 的路径映射及别名解析。
-- `package-lock.json`、`install-lock/package-lock.json`、`npm-shrinkwrap.json`：注册并锁定本地 workspace 包 (0.99.1)。
+- `package-lock.json`、`install-lock/package-lock.json`、`npm-shrinkwrap.json`：注册并锁定本地 workspace 包 (1.0.0)。
 - `.npmrc`：开启 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true`。
 - `.gitignore`：追加本地打包及临时文件夹忽略。
 
