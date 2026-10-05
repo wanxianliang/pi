@@ -112,7 +112,11 @@ import {
 	type TurnStartEvent,
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
-import { filterAllToolDefinitions, isToolEnabledInConfig, setLastFullTools } from "./extensions/pi-extension-enhance.ts";
+import {
+	filterAllToolDefinitions,
+	isToolEnabledInConfig,
+	setLastFullTools,
+} from "./extensions/pi-extension-enhance.ts";
 
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";

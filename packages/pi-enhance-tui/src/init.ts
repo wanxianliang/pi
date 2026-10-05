@@ -502,8 +502,11 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 	if (options?.InteractiveMode) {
 		const ModeClass = options.InteractiveMode;
 		const origInit = ModeClass.prototype.init;
+		const origStop = ModeClass.prototype.stop;
 		ModeClass.prototype.init = async function (this: any) {
 			const res = await origInit.call(this);
+			(globalThis as any).__pi_interactive_mode__ = this;
+			(globalThis as any).__pi_tui__ = this.ui;
 			if (this.loadedResourcesContainer) {
 				this.loadedResourcesContainer.clear();
 			}
@@ -571,8 +574,16 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			this.ui?.requestRender?.();
 			return res;
 		};
+		ModeClass.prototype.stop = function (this: any) {
+			delete (globalThis as any).__pi_interactive_mode__;
+			delete (globalThis as any).__pi_tui__;
+			return origStop ? origStop.call(this) : undefined;
+		};
 		restorers.push(() => {
 			ModeClass.prototype.init = origInit;
+			if (origStop) ModeClass.prototype.stop = origStop;
+			delete (globalThis as any).__pi_interactive_mode__;
+			delete (globalThis as any).__pi_tui__;
 		});
 	}
 

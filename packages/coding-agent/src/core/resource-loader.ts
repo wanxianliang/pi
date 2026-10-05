@@ -21,6 +21,8 @@ import {
 	filterEnabledExtensionPaths,
 	filterEnabledExtensions,
 	filterEnabledSkills,
+	setLastFullExtensionPaths,
+	setLastFullSkills,
 } from "./extensions/pi-extension-enhance.ts";
 import type {
 	Extension,

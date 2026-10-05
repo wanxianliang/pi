@@ -10,7 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCOPE="$HOME/.bun/install/global/node_modules/@earendil-works"
 
 # Local @earendil-works packages to install into the bun global scope.
-PACKAGES=(chord ai protocol tui pi-enhance-tui telemetry codemode mcp durable agent client server coding-agent session-backends/sqlite-node)
+PACKAGES=(chord ai protocol tui pi-enhance-tui telemetry codemode mcp durable agent client server coding-agent)
 
 echo -e "${YELLOW}[1/2] Building project...${NC}"
 (cd "$ROOT" && npm run build)
