@@ -10,8 +10,8 @@
 1. **分支铁律**：全部工作在 `main` 分支进行，使用 `git merge` 融入上游，**严禁使用 `git rebase`**（避免重放 40+ 历史提交导致大量回退文件的伪冲突）。
 2. **极简侵入原则**：除定制的 `packages/pi-enhance-tui/` 独立包和新增的 `pi-extension-enhance.ts` 之外，对官方源文件的修改**必须控制在 7 处核心文件以内**，且每处均为 1~2 行委托调用。
 3. **官方纯净模块不得污染**：`packages/tui/*`、`packages/agent/*`、`packages/ai/*`、`packages/client/*`、`packages/server/*`、`packages/durable/*`、`packages/chord/*` 等必须保持 100% 官方纯净。
-4. **生成物绝不手工解冲突**：`package-lock.json`、`npm-shrinkwrap.json`、`install-lock/package-lock.json` 若冲突，直接取上游版本（`--theirs`），随后通过官方脚本全量重新生成。
-5. **不变量必须 100% 通过**：同步完成后必须运行 4 项依赖与安全锁检查，全部通过才算成功。
+4. **生成物绝不手工解冲突**：`package-lock.json`、`install-lock/package-lock.json` 若冲突，直接取上游版本（`--theirs`），随后通过官方脚本全量重新生成（注：官方已在 #5653 移除 `npm-shrinkwrap.json`）。
+5. **不变量必须 100% 通过**：同步完成后必须运行 3 项依赖与安全锁检查以及 `npm run check`，全部通过才算成功。
 6. **严禁私自提交或推送**：除非用户明确要求 commit 或 push，否则仅在工作区完成合并与更新。
 
 ---
@@ -78,7 +78,6 @@ bash update_code_from_pi.sh
 node scripts/check-pinned-deps.mjs
 node scripts/check-runtime-deps.mjs
 node scripts/generate-coding-agent-install-lock.mjs --check
-node scripts/generate-coding-agent-shrinkwrap.mjs --check
 ```
 如需全面类型与语法检查（不跑测试），可运行：
 ```bash
@@ -113,6 +112,6 @@ npm run check
 向用户汇报时，应保持简明扼要，给出以下确定性证据：
 1. 本次同步的 Upstream 基准 SHA 与包含的官方上游提交数。
 2. 是否发生代码冲突；若有，说明是如何解决的。
-3. 四项官方不变量检查（pinned-deps、runtime-deps、install-lock、shrinkwrap）的运行结果（均为 Exit 0）。
+3. 官方不变量检查（pinned-deps、runtime-deps、install-lock）与 `npm run check` 的运行结果（均为 Exit 0）。
 4. 净增量摘要（修改的官方源文件数量、总增删行数）。
 5. `pi-enhance.md` 的更新情况。

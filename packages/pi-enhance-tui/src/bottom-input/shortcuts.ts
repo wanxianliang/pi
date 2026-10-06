@@ -110,6 +110,7 @@ const RAW_RESERVED_SHORTCUTS = [
 	"shift+ctrl+p",
 	"ctrl+l",
 	"ctrl+o",
+	"super+o",
 	"shift+ctrl+o",
 	"ctrl+t",
 	"ctrl+n",
