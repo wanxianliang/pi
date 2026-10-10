@@ -600,6 +600,11 @@ test("compositor caches rootLines and avoids redundant terminal writes", () => {
 	compositor.requestRepaint();
 	assert.strictEqual(writeCount, writesBefore + 1);
 
+	// doRender marks root dirty so subsequent frame refreshes
+	mockTui.doRender();
+	mockTui.render(80);
+	assert.strictEqual(renderCount, 3);
+
 	compositor.dispose();
 });
 

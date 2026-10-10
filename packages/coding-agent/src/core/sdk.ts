@@ -11,7 +11,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { applyContextEnhancements } from "./extensions/pi-extension-enhance.ts";
 
-const { createToolNameMatcher } = require("./mcp-servers.ts");
+import { createToolNameMatcher } from "./mcp-servers.ts";
 
 import { convertToLlm } from "./messages.ts";
 import { findInitialModel } from "./model-resolver.ts";

@@ -1,6 +1,6 @@
 # Pi Agent 增强扩展与源码修改说明 (vs 官方 upstream/main)
 
-> **当前基准版本**：`upstream/main @ b2b5c42f6` (v1.0.2)
+> **当前基准版本**：`upstream/main @ 42a3497d0` (v1.1.0)
 > **真实净增量比对命令**：`git diff upstream/main...HEAD` (三点比较，消除历史合并噪声)  
 > **同步脚本**：`bash update_code_from_pi.sh` (自动 fetch 校验、生成物冲突处理、锁文件生成与不变量校验)
 
@@ -21,10 +21,11 @@
 | `packages/coding-agent/src/core/extensions/index.ts` | 导出 `EnhancedContextResult` 与 `filterContextWithExtensions` |
 | `packages/coding-agent/src/core/extensions/runner.ts` | `createContext` 暴露 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool`，提供 `emitContextEnhancements` 与 `emitTools`，兼容上游 `normalizeBuildSystemPromptOptions` |
 | `packages/coding-agent/src/core/extensions/types.ts` | 声明 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool` 接口扩展，并在 `ContextEvent` / `ContextEventResult` / `ToolCallEventBase` / `ExtensionContextActions` 中声明扩展字段 |
-| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: ^1.0.2` 依赖（内部包版本对齐上游 1.0.2）及 `build:binary` 构建前置步骤 |
-| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (1.0.2) 依赖锁信息 |
+| `packages/coding-agent/src/core/keybindings.ts` | 在 macOS (darwin) 下为 `app.tools.expand` 追加 `super+o` 快捷键 |
+| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: ^1.1.0` 依赖（内部包版本对齐上游 1.1.0）及 `build:binary` 构建前置步骤 |
+| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (1.1.0) 依赖锁信息 |
 | `package.json` | 在全局 `build` / `build:offline` 脚本中插入 `pi-enhance-tui` 构建步骤（兼容官方最新 `durable`、`codemode` 与 `mcp` 构建） |
-| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (1.0.2) workspace 软链接及依赖项 |
+| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (1.1.0) workspace 软链接及依赖项 |
 | `tsconfig.json` | 映射 `@earendil-works/pi-enhance-tui` 路径别名 |
 | `vitest.base.ts` | 映射 `@earendil-works/pi-enhance-tui` 测试路径别名 |
 | `.npmrc` | 配置 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true` |
@@ -41,10 +42,10 @@
 - **`packages/session-backends/*`**：**100% 官方纯净源码**（0 修改）
 - **`packages/coding-agent/src/core/tools/*`**：**100% 官方纯净源码**（0 修改）
 - **`packages/coding-agent/src/core/system-prompt.ts`**：**100% 官方纯净源码**（0 修改）
-- **`packages/coding-agent/src/core/keybindings.ts`**：**100% 官方纯净源码**（0 修改）
 - **`packages/coding-agent/src/modes/interactive/components/*`**：**100% 官方纯净源码**（0 修改）
 - **`packages/coding-agent/src/modes/interactive/interactive-mode.ts`**：**100% 官方纯净源码**（0 修改，随上游重构解耦后完全恢复纯净）
 - **`packages/durable/*`**：**100% 官方纯净源码**（0 修改，上游最新新增持久化支持）
+- **`packages/env/*`**：**100% 官方纯净源码**（0 修改，上游最新新增远程执行环境支持）
 - **`packages/chord/*`**：**100% 官方纯净源码**（0 修改）
 - **`packages/evals/*`**：**100% 官方纯净源码**（0 修改）
 - **`packages/codemode/*`**：**100% 官方纯净源码**（0 修改）
@@ -54,7 +55,7 @@
 
 ## 二、官方源码修改关键点深度解析（着重说明）
 
-本项目对官方上游源码共有 **7 处核心源文件** 和 **若干工程配置** 进行了修改，全部恪守单点极简侵入：
+本项目对官方上游源码共有 **8 处核心源文件** 和 **若干工程配置** 进行了修改，全部恪守单点极简侵入：
 
 ### 1. `packages/coding-agent/src/core/sdk.ts`（LLM 上下文管道拦截）
 - **修改位置**：`createAgentSession` 内部的 `streamFn` 回调函数。
@@ -99,11 +100,15 @@
   - `ToolCallEventBase` 中追加 `parentToolCallId` 与 `callerTool`，支持工具嵌套调用追踪。
   - `ExtensionContextActions` 中追加 `getAllToolDefinitions` 与 `emitAgentEvent` 回调类型。
 
-### 8. 构建与工程配置修改
-- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: ^1.0.2` 依赖与 `build:binary` 前置构建。
+### 8. `packages/coding-agent/src/core/keybindings.ts`（macOS 快捷键适配）
+- **修改位置**：`APP_KEYBINDINGS` 工具输出折叠键定义。
+- **改动详情**：在 macOS 平台 (`process.platform === "darwin"`) 下为 `app.tools.expand` 追加 `super+o` 快捷键绑定。
+
+### 9. 构建与工程配置修改
+- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: ^1.1.0` 依赖与 `build:binary` 前置构建。
 - `package.json`：在根目录 `build` 与 `build:offline` 中添加 `packages/pi-enhance-tui` 的构建步骤。
 - `tsconfig.json` & `vitest.base.ts`：添加 `@earendil-works/pi-enhance-tui` 的路径映射及别名解析。
-- `package-lock.json`、`install-lock/package-lock.json`：注册并锁定本地 workspace 包 (1.0.2)。（注：官方在 #5653 已移除 `npm-shrinkwrap.json`）。
+- `package-lock.json`、`install-lock/package-lock.json`：注册并锁定本地 workspace 包 (1.1.0)。（注：官方在 #5653 已移除 `npm-shrinkwrap.json`）。
 - `.npmrc`：开启 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true`。
 - `.gitignore`：追加本地打包及临时文件夹忽略。
 

@@ -364,11 +364,18 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		const origUpdateResult = ToolClass.prototype.updateResult;
 		const origMarkExecutionStarted = ToolClass.prototype.markExecutionStarted;
 		const origSetArgsComplete = ToolClass.prototype.setArgsComplete;
+		const origSetExpanded = ToolClass.prototype.setExpanded;
 
 		ToolClass.prototype.invalidate = function (this: any): void {
 			this.__cachedCardLines = undefined;
 			this.__cachedCardWidth = undefined;
 			origToolInvalidate?.call(this);
+		};
+
+		ToolClass.prototype.setExpanded = function (this: any, expanded: boolean): void {
+			this.__cachedCardLines = undefined;
+			this.__cachedCardWidth = undefined;
+			origSetExpanded?.call(this, expanded);
 		};
 
 		function updateSpinnerState(comp: any) {
@@ -495,6 +502,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 			ToolClass.prototype.updateResult = origUpdateResult;
 			if (origMarkExecutionStarted) ToolClass.prototype.markExecutionStarted = origMarkExecutionStarted;
 			if (origSetArgsComplete) ToolClass.prototype.setArgsComplete = origSetArgsComplete;
+			if (origSetExpanded) ToolClass.prototype.setExpanded = origSetExpanded;
 		});
 	}
 

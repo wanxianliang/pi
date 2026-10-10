@@ -595,6 +595,7 @@ export class FixedBottomEditorCompositor {
 			return this.originalDoRender.apply(this.tui, args);
 		}
 
+		this.markRootDirty();
 		this.doRendering = true;
 		try {
 			const result = this.originalDoRender.apply(this.tui, args);

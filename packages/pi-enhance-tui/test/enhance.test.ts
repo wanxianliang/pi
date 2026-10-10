@@ -208,4 +208,50 @@ describe("pi-enhance-tui core suite", () => {
 		assert.ok(card[0].includes("bash"));
 		assert.ok(card[card.length - 1].includes("╰"));
 	});
+
+	it("ToolExecutionComponent setExpanded toggles expanded card lines without stale cache", () => {
+		class MockToolExecutionComponent {
+			toolName = "bash";
+			args = { command: "echo test" };
+			result = {
+				content: [{ type: "text", text: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") }],
+				isError: false,
+			};
+			expanded = false;
+			isPartial = false;
+			executionStarted = true;
+			hideComponent = false;
+			render(_width: number): string[] {
+				return ["raw fallback"];
+			}
+			setExpanded(expanded: boolean): void {
+				this.expanded = expanded;
+			}
+			invalidate(): void {}
+			updateArgs(): void {}
+			updateResult(): void {}
+			markExecutionStarted(): void {}
+			setArgsComplete(): void {}
+		}
+
+		const instance = initPiEnhanceTui({
+			ToolExecutionComponent: MockToolExecutionComponent,
+		});
+
+		const comp = new MockToolExecutionComponent();
+		const collapsed = comp.render(80);
+		assert.ok(collapsed.some((l) => l.includes("Ctrl+O to expand")));
+
+		comp.setExpanded(true);
+		const expanded = comp.render(80);
+		assert.ok(!expanded.some((l) => l.includes("Ctrl+O to expand")));
+		assert.ok(expanded.length > collapsed.length);
+		assert.ok(expanded.some((l) => l.includes("20")));
+
+		comp.setExpanded(false);
+		const collapsedAgain = comp.render(80);
+		assert.ok(collapsedAgain.some((l) => l.includes("Ctrl+O to expand")));
+
+		instance.restore();
+	});
 });
