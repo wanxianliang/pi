@@ -1858,9 +1858,19 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 			console.log(`Loading models.dev data from ${localPath}...`);
 			data = JSON.parse(readFileSync(localPath, "utf8")) as ModelsDevCatalog;
 		} else {
-			const response = await fetch("https://models.dev/api.json");
-			if (!response.ok) throw new Error(`models.dev API returned ${response.status}`);
-			data = (await response.json()) as ModelsDevCatalog;
+			try {
+				const response = await fetch("https://models.dev/api.json");
+				if (!response.ok) throw new Error(`models.dev API returned ${response.status}`);
+				data = (await response.json()) as ModelsDevCatalog;
+				try { writeFileSync("/tmp/models-dev-api.json", JSON.stringify(data)); } catch {}
+			} catch (fetchError) {
+				if (existsSync("/tmp/models-dev-api.json")) {
+					console.log("Fetch failed, falling back to cached /tmp/models-dev-api.json...");
+					data = JSON.parse(readFileSync("/tmp/models-dev-api.json", "utf8")) as ModelsDevCatalog;
+				} else {
+					throw fetchError;
+				}
+			}
 		}
 
 		const models: Model<any>[] = [];

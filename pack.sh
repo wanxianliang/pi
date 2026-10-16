@@ -30,13 +30,13 @@ for arg in "$@"; do
 	esac
 done
 
-PACKAGES=(chord ai protocol tui pi-enhance-tui telemetry agent durable codemode mcp client server coding-agent)
+PACKAGES=(chord ai tui pi-enhance-tui telemetry agent durable codemode mcp env coding-agent)
 
 if [ "$SKIP_BUILD" -eq 1 ]; then
 	echo -e "${YELLOW}[1/4] Skipping build step (--skip-build)...${NC}"
 else
 	echo -e "${YELLOW}[1/4] Building project...${NC}"
-	(cd "$ROOT" && npm run build)
+	(cd "$ROOT" && npm run build:offline)
 fi
 
 echo -e "${YELLOW}[2/4] Collecting built packages into staging...${NC}"

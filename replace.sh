@@ -10,10 +10,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCOPE="$HOME/.bun/install/global/node_modules/@earendil-works"
 
 # Local @earendil-works packages to install into the bun global scope.
-PACKAGES=(chord ai protocol tui pi-enhance-tui telemetry codemode mcp durable agent client server coding-agent)
+PACKAGES=(chord ai tui pi-enhance-tui telemetry codemode mcp durable env agent coding-agent)
 
 echo -e "${YELLOW}[1/2] Building project...${NC}"
-(cd "$ROOT" && npm run build)
+(cd "$ROOT" && npm run build:offline)
 
 echo -e "${YELLOW}[2/2] Installing built packages into bun global scope...${NC}"
 mkdir -p "$SCOPE"
