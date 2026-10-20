@@ -9,9 +9,13 @@ NC='\x1b[0m'
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_NAME="pi-bundle"
+APP_NAME="pi"
+# distribute.sh 平台标识: universal = 通用包，任何系统/架构均可安装
+PLATFORM="universal"
 OUTPUT_DIR="$ROOT/dist-package"
 STAGING="$OUTPUT_DIR/$DIST_NAME"
-ARCHIVE="$ROOT/$DIST_NAME.tar.gz"
+# distribute.sh 只接受 .zip，且要求 zip 根目录包含 install.sh
+ARCHIVE="$ROOT/$DIST_NAME.zip"
 
 # Path to distribute.sh
 DISTRIBUTE_SH="${DISTRIBUTE_SH:-$HOME/Documents/node-base/scripts/distribute.sh}"
@@ -29,6 +33,12 @@ for arg in "$@"; do
 			;;
 	esac
 done
+
+VERSION="$(node -p "require('$ROOT/packages/coding-agent/package.json').version")"
+if ! echo "$VERSION" | grep -qE '^[0-9A-Za-z][0-9A-Za-z._+-]*$'; then
+	echo -e "${RED} ERROR invalid version: $VERSION${NC}"
+	exit 1
+fi
 
 PACKAGES=(chord ai tui pi-enhance-tui telemetry agent durable codemode mcp env coding-agent)
 
@@ -71,6 +81,20 @@ BUN_DIR="${BUN_INSTALL:-$HOME/.bun}"
 SCOPE="$BUN_DIR/install/global/node_modules/@earendil-works"
 BIN_DIR="$BUN_DIR/bin"
 
+# distribute.sh 调用时传入 --dest <dir> / --yes，本安装流程固定安装到 Bun 全局目录，故忽略
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-d|--dest) shift 2 ;;
+		-y|--yes) shift ;;
+		-h|--help)
+			echo "Usage: bash install.sh [-d <dir>] [-y]"
+			echo "Installs the bundled @earendil-works packages and links the 'pi' binary."
+			exit 0
+			;;
+		*) shift ;;
+	esac
+done
+
 echo -e "${YELLOW}[1/2] Installing @earendil-works packages into $SCOPE...${NC}"
 mkdir -p "$SCOPE"
 for pkg in "$SCRIPT_DIR/@earendil-works"/*; do
@@ -102,15 +126,24 @@ if command -v pi >/dev/null 2>&1; then
 else
 	echo -e "${YELLOW}Notice:${NC} '$BIN_DIR' is not in your current PATH."
 	echo "Please add it to your ~/.zshrc or ~/.bashrc:"
-	echo -e "  ${BLUE}export PATH="$BIN_DIR:\$PATH"${NC}"
+	echo -e " ${BLUE}export PATH="$BIN_DIR:\$PATH"${NC}"
 fi
 EOF
 
 chmod +x "$STAGING/install.sh"
 
 echo -e "${YELLOW}[3/4] Creating archive: $ARCHIVE...${NC}"
-tar -czf "$ARCHIVE" -C "$OUTPUT_DIR" "$DIST_NAME"
+if ! command -v zip >/dev/null 2>&1; then
+	echo -e "${RED} ERROR zip command not found (required by distribute.sh)${NC}"
+	exit 1
+fi
+(cd "$STAGING" && zip -9 -r -q "$ARCHIVE" .)
 rm -rf "$OUTPUT_DIR"
+
+if ! unzip -Z1 "$ARCHIVE" | grep -xE '(\./)?install\.sh' >/dev/null; then
+	echo -e "${RED} ERROR install.sh is not at the archive root${NC}"
+	exit 1
+fi
 
 SIZE="$(du -h "$ARCHIVE" | cut -f1)"
 echo -e "${GREEN}✓ Done! Archive created at:${NC} ${BLUE}$ARCHIVE${NC} (${YELLOW}$SIZE${NC})"
@@ -118,16 +151,16 @@ echo -e "${GREEN}✓ Done! Archive created at:${NC} ${BLUE}$ARCHIVE${NC} (${YELL
 # Auto distribution step
 if [ "$AUTO_DIST" -eq 1 ]; then
 	echo ""
-	echo -e "${YELLOW}[4/4] Auto-distributing archive via distribute.sh...${NC}"
+	echo -e "${YELLOW}[4/4] Auto-distributing archive via distribute.sh ($PLATFORM)...${NC}"
 	if [ -f "$DISTRIBUTE_SH" ]; then
-		bash "$DISTRIBUTE_SH" push "$ARCHIVE"
+		bash "$DISTRIBUTE_SH" push -s "$ARCHIVE" -n "$APP_NAME" -V "$VERSION" -p "$PLATFORM"
 		echo -e "${GREEN}✓ Auto-distribution completed!${NC}"
 		echo -e "On other machines, simply install it with:"
-		echo -e "  ${BLUE}./distribute.sh install $DIST_NAME.tar.gz -y${NC}"
+		echo -e " ${BLUE}./distribute.sh install $APP_NAME -y${NC}"
 	else
 		echo -e "${RED}Warning:${NC} distribute.sh not found at: $DISTRIBUTE_SH"
 		echo "Skipping auto-distribution. You can manually run:"
-		echo "  <path_to_distribute.sh> push $ARCHIVE"
+		echo " <path_to_distribute.sh> push -s $ARCHIVE -n $APP_NAME -V $VERSION -p $PLATFORM"
 	fi
 else
 	echo -e "${YELLOW}[4/4] Skipping auto-distribution (--no-dist specified).${NC}"

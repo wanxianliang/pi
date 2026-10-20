@@ -48,3 +48,4 @@ plan/archive/
 .codegraph/
 packages/agent/docs/extensions/pi-server-artifact/index.md
 pi-bundle.tar.gz
+pi-bundle.zip
