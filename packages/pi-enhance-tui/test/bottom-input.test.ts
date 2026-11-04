@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import {
+	BunTerminalWriter,
 	cacheHitRatioFromUsage,
 	copyToSystemClipboard,
 	createBottomInputEditor,
 	createBottomInputRuntime,
 	FixedBottomEditorCompositor,
 	getUsageTokenTotal,
+	highlightCode,
 	isAssistantUsage,
 	isCutShortcutInput,
 	isSelectAllShortcutInput,
@@ -764,4 +766,61 @@ test("compositor scrolls output area on mouse wheel and ignores scroll over inpu
 	assert.strictEqual((compositor as any).scrollOffset, 3);
 
 	compositor.dispose();
+});
+
+test("compositor self-heals when previous hooks or owner remain on terminal/TUI", () => {
+	const mockTerminal = {
+		columns: 80,
+		rows: 24,
+		write: () => {},
+	};
+	const mockTui = {
+		render: () => ["line 1", "line 2"],
+		doRender: () => {},
+		invalidate: () => {},
+	};
+
+	// Simulate stale owner token and stale hook on terminal and tui
+	const staleOwner = Symbol("stale.compositor.instance");
+	(mockTerminal as any)[Symbol.for("pi.enhance.tui.fixedBottomEditor.compositorOwner.v1")] = staleOwner;
+	(mockTui as any)[Symbol.for("pi.enhance.tui.fixedBottomEditor.compositorOwner.v1")] = staleOwner;
+
+	const compositor = new FixedBottomEditorCompositor({
+		tui: mockTui,
+		terminal: mockTerminal as any,
+		renderCluster: () => ({ lines: ["test"] }),
+	});
+
+	// Should self-heal without throwing conflict errors
+	assert.doesNotThrow(() => {
+		compositor.install();
+	});
+
+	compositor.dispose();
+});
+
+test("writer handles stdout/EIO write errors gracefully", () => {
+	const writer = new BunTerminalWriter();
+	// Simulate bunWriter that throws EIO
+	(writer as any).bunWriter = {
+		write: () => {
+			throw new Error("EIO: i/o error, write");
+		},
+		flush: () => {
+			throw new Error("EIO: i/o error, write");
+		},
+	};
+
+	assert.doesNotThrow(() => {
+		writer.write("test data");
+		writer.flush();
+	});
+});
+
+test("highlightCode safely handles deeply escaped JSON without RangeError", () => {
+	const deepEscapedJson = `{"key": "${"\\".repeat(50000)}"}`;
+	assert.doesNotThrow(() => {
+		const lines = highlightCode(deepEscapedJson, "json");
+		assert.ok(lines.length > 0);
+	});
 });

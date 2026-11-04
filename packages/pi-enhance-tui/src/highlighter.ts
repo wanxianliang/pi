@@ -58,14 +58,18 @@ function highlightJson(lines: string[], styles: HighlightStyles): string[] {
 	const kwFmt = styles.keyword ?? DEFAULT_STYLES.keyword!;
 
 	return lines.map((line) => {
-		let processed = line.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"\s*:/g, (_, key) => `"${kwFmt(key)}":`);
-		processed = processed.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (match) => {
-			if (match.includes("\x1b[")) return match;
-			return strFmt(match);
-		});
-		processed = processed.replace(/\b(-?\d+(\.\d+)?([eE][+-]?\d+)?)\b/g, (match) => numFmt(match));
-		processed = processed.replace(/\b(true|false|null)\b/g, (match) => kwFmt(match));
-		return processed;
+		try {
+			let processed = line.replace(/"((?:[^"\\]|\\.)*)"\s*:/g, (_, key) => `"${kwFmt(key)}":`);
+			processed = processed.replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
+				if (match.includes("\x1b[")) return match;
+				return strFmt(match);
+			});
+			processed = processed.replace(/\b(-?\d+(\.\d+)?([eE][+-]?\d+)?)\b/g, (match) => numFmt(match));
+			processed = processed.replace(/\b(true|false|null)\b/g, (match) => kwFmt(match));
+			return processed;
+		} catch {
+			return line;
+		}
 	});
 }
 
@@ -76,70 +80,74 @@ export function highlightCode(code: string, lang?: string, customStyles?: Highli
 
 	if (!normalizedLang) return lines;
 
-	if (normalizedLang === "diff" || normalizedLang === "patch") {
-		return highlightDiff(lines, styles);
-	}
-
-	if (normalizedLang === "json" || normalizedLang === "jsonc") {
-		return highlightJson(lines, styles);
-	}
-
-	let keywordRegex = TS_JS_KEYWORDS;
-	let isPython = false;
-
-	if (normalizedLang === "python" || normalizedLang === "py") {
-		keywordRegex = PY_KEYWORDS;
-		isPython = true;
-	} else if (
-		normalizedLang === "rust" ||
-		normalizedLang === "rs" ||
-		normalizedLang === "go" ||
-		normalizedLang === "c" ||
-		normalizedLang === "cpp"
-	) {
-		keywordRegex = RUST_GO_KEYWORDS;
-	}
-
-	const kwFmt = styles.keyword ?? DEFAULT_STYLES.keyword!;
-	const strFmt = styles.string ?? DEFAULT_STYLES.string!;
-	const numFmt = styles.number ?? DEFAULT_STYLES.number!;
-	const commentFmt = styles.comment ?? DEFAULT_STYLES.comment!;
-	const fnFmt = styles.function ?? DEFAULT_STYLES.function!;
-
-	return lines.map((line) => {
-		const commentPrefix = isPython ? "#" : "//";
-		const commentIdx = line.indexOf(commentPrefix);
-
-		let codePart = line;
-		let commentPart = "";
-
-		if (commentIdx !== -1) {
-			codePart = line.slice(0, commentIdx);
-			commentPart = commentFmt(line.slice(commentIdx));
+	try {
+		if (normalizedLang === "diff" || normalizedLang === "patch") {
+			return highlightDiff(lines, styles);
 		}
 
-		// 1. Strings masking
-		const stringTokens: string[] = [];
-		let processed = codePart.replace(STRING_PATTERN, (match) => {
-			const idx = stringTokens.length;
-			stringTokens.push(strFmt(match));
-			return `___STR_${idx}___`;
+		if (normalizedLang === "json" || normalizedLang === "jsonc") {
+			return highlightJson(lines, styles);
+		}
+
+		let keywordRegex = TS_JS_KEYWORDS;
+		let isPython = false;
+
+		if (normalizedLang === "python" || normalizedLang === "py") {
+			keywordRegex = PY_KEYWORDS;
+			isPython = true;
+		} else if (
+			normalizedLang === "rust" ||
+			normalizedLang === "rs" ||
+			normalizedLang === "go" ||
+			normalizedLang === "c" ||
+			normalizedLang === "cpp"
+		) {
+			keywordRegex = RUST_GO_KEYWORDS;
+		}
+
+		const kwFmt = styles.keyword ?? DEFAULT_STYLES.keyword!;
+		const strFmt = styles.string ?? DEFAULT_STYLES.string!;
+		const numFmt = styles.number ?? DEFAULT_STYLES.number!;
+		const commentFmt = styles.comment ?? DEFAULT_STYLES.comment!;
+		const fnFmt = styles.function ?? DEFAULT_STYLES.function!;
+
+		return lines.map((line) => {
+			const commentPrefix = isPython ? "#" : "//";
+			const commentIdx = line.indexOf(commentPrefix);
+
+			let codePart = line;
+			let commentPart = "";
+
+			if (commentIdx !== -1) {
+				codePart = line.slice(0, commentIdx);
+				commentPart = commentFmt(line.slice(commentIdx));
+			}
+
+			// 1. Strings masking
+			const stringTokens: string[] = [];
+			let processed = codePart.replace(STRING_PATTERN, (match) => {
+				const idx = stringTokens.length;
+				stringTokens.push(strFmt(match));
+				return `___STR_${idx}___`;
+			});
+
+			// 2. Keywords
+			processed = processed.replace(keywordRegex, (match) => kwFmt(match));
+
+			// 3. Functions (ident followed by '(')
+			processed = processed.replace(/\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?=\()/g, (match, fnName) => {
+				return match.replace(fnName, fnFmt(fnName));
+			});
+
+			// 4. Numbers
+			processed = processed.replace(/\b(0x[0-9a-fA-F]+|\d+(\.\d+)?)\b/g, (match) => numFmt(match));
+
+			// 5. Restore strings
+			processed = processed.replace(/___STR_(\d+)___/g, (_, idx) => stringTokens[Number(idx)] ?? "");
+
+			return processed + commentPart;
 		});
-
-		// 2. Keywords
-		processed = processed.replace(keywordRegex, (match) => kwFmt(match));
-
-		// 3. Functions (ident followed by '(')
-		processed = processed.replace(/\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?=\()/g, (match, fnName) => {
-			return match.replace(fnName, fnFmt(fnName));
-		});
-
-		// 4. Numbers
-		processed = processed.replace(/\b(0x[0-9a-fA-F]+|\d+(\.\d+)?)\b/g, (match) => numFmt(match));
-
-		// 5. Restore strings
-		processed = processed.replace(/___STR_(\d+)___/g, (_, idx) => stringTokens[Number(idx)] ?? "");
-
-		return processed + commentPart;
-	});
+	} catch {
+		return lines;
+	}
 }

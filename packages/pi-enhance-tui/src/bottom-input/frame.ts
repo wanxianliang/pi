@@ -375,16 +375,20 @@ export function renderBottomInputEditorLines(input: {
 }): string[] {
 	const width = Number.isFinite(input.width) ? Math.max(0, Math.floor(input.width)) : 0;
 	if (!input.state.beautifiedInputEnabled || width < MIN_FRAME_WIDTH) return [...input.lines];
-	const { editorLines, popupLines } = splitNativeEditorRender(input.lines);
-	return [
-		...renderBeautifiedEditorFrame({
-			editorLines,
-			width,
-			theme: input.theme,
-			status: input.state.getFrameStatus(width),
-		}),
-		...fitPopupLines(popupLines, width),
-	];
+	try {
+		const { editorLines, popupLines } = splitNativeEditorRender(input.lines);
+		return [
+			...renderBeautifiedEditorFrame({
+				editorLines,
+				width,
+				theme: input.theme,
+				status: input.state.getFrameStatus(width),
+			}),
+			...fitPopupLines(popupLines, width),
+		];
+	} catch {
+		return [...input.lines];
+	}
 }
 
 export interface EditorTextSelection {
@@ -983,14 +987,26 @@ export class EnhancedEditorBase extends Editor {
 			visible: true,
 		};
 		const styledEditorLines = editorLines.map((_line, idx) => {
-			const vl = visualLines[scrollOffset + idx];
-			if (!vl) return _line;
-			const line = (this as any).state.lines[vl.logicalLine] || "";
-			const text = line.slice(vl.startCol, vl.startCol + vl.length);
-			const isLastChunk =
-				scrollOffset + idx === visualLines.length - 1 ||
-				visualLines[scrollOffset + idx + 1]?.logicalLine !== vl.logicalLine;
-			return highlightVisualLineSelection(text, vl.startCol, vl.length, vl.logicalLine, range, cursor, isLastChunk);
+			try {
+				const vl = visualLines[scrollOffset + idx];
+				if (!vl) return _line;
+				const line = (this as any).state.lines[vl.logicalLine] || "";
+				const text = line.slice(vl.startCol, vl.startCol + vl.length);
+				const isLastChunk =
+					scrollOffset + idx === visualLines.length - 1 ||
+					visualLines[scrollOffset + idx + 1]?.logicalLine !== vl.logicalLine;
+				return highlightVisualLineSelection(
+					text,
+					vl.startCol,
+					vl.length,
+					vl.logicalLine,
+					range,
+					cursor,
+					isLastChunk,
+				);
+			} catch {
+				return _line;
+			}
 		});
 
 		const decoratedBase = isNativeEditorRule(base[0] ?? "")

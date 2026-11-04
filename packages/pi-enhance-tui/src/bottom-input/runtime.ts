@@ -261,7 +261,13 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 					this.tui.requestRender();
 					return;
 				}
-				this.compositor.requestRepaint();
+				try {
+					this.compositor.requestRepaint();
+				} catch {
+					if (typeof this.tui?.requestRender === "function") {
+						this.tui.requestRender();
+					}
+				}
 				return;
 			}
 			if (typeof this.tui?.requestRender === "function") this.tui.requestRender();
@@ -435,7 +441,7 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 			return this.toStatus();
 		} catch (error) {
 			this.creatingFooter = false;
-			return fixedEnabled ? this.failClosed(formatFailure(error)) : this.disableWithFailure(formatFailure(error));
+			return this.disableWithFailure(formatFailure(error));
 		}
 	}
 
@@ -519,7 +525,7 @@ class BottomInputRuntimeImpl implements BottomInputRuntime {
 					this.installCompositor(tui);
 				} catch (error) {
 					if (this.creatingFooter) throw error;
-					this.failClosed(formatFailure(error));
+					this.disableWithFailure(formatFailure(error));
 				}
 			}
 

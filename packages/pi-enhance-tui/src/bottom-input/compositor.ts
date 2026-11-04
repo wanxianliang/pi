@@ -492,10 +492,8 @@ export class FixedBottomEditorCompositor {
 	}
 
 	hideRenderable(target: FixedEditorRenderable): void {
+		if (!target || typeof target.render !== "function") return;
 		if (this.patchedRenders.some((patch) => patch.target === target)) return;
-		if (typeof target.render !== "function") {
-			throw new Error("[pi-enhance-tui] hideRenderable expected target.render(width) to exist");
-		}
 
 		const originalRender = target.render;
 		const hiddenRender = () => [];
@@ -511,22 +509,25 @@ export class FixedBottomEditorCompositor {
 
 	requestRepaint(): void {
 		if (this.disposed || this.hasVisibleOverlay()) return;
+		try {
+			const rawRows = this.getRawRows();
+			const width = this.getTerminalWidth();
+			const cluster = this.getCluster(width, rawRows);
+			if (cluster.lines.length === 0) return;
 
-		const rawRows = this.getRawRows();
-		const width = this.getTerminalWidth();
-		const cluster = this.getCluster(width, rawRows);
-		if (cluster.lines.length === 0) return;
+			const clusterPaint = buildFixedEditorClusterPaint(
+				this.decorateCluster(cluster),
+				rawRows,
+				width,
+				this.getShowHardwareCursor(),
+			);
+			if (clusterPaint === this.lastPaintedCluster) return;
+			this.lastPaintedCluster = clusterPaint;
 
-		const clusterPaint = buildFixedEditorClusterPaint(
-			this.decorateCluster(cluster),
-			rawRows,
-			width,
-			this.getShowHardwareCursor(),
-		);
-		if (clusterPaint === this.lastPaintedCluster) return;
-		this.lastPaintedCluster = clusterPaint;
-
-		this.writeOriginal(beginSynchronizedOutput() + clusterPaint + endSynchronizedOutput());
+			this.writeOriginal(beginSynchronizedOutput() + clusterPaint + endSynchronizedOutput());
+		} catch {
+			// Ignore repaint errors if terminal was closed or sizing failed
+		}
 	}
 
 	setKeyboardScrollShortcuts(shortcuts: { up: string; down: string }): void {
@@ -564,11 +565,33 @@ export class FixedBottomEditorCompositor {
 		}
 		this.clearPendingWheelScroll();
 		this.clearSelection();
-		if (this.originalRender && this.tui.render === this.renderWrapper) {
-			this.tui.render = this.originalRender;
+		if (this.originalRender) {
+			try {
+				delete (this.tui as any).render;
+			} catch {}
+			const im = (globalThis as any).__pi_interactive_mode__;
+			if (im?.renderer) {
+				try {
+					delete im.renderer.render;
+				} catch {}
+			}
+			try {
+				this.tui.render = this.originalRender;
+			} catch {}
 		}
-		if (this.originalDoRender && this.tui.doRender === this.doRenderWrapper) {
-			this.tui.doRender = this.originalDoRender;
+		if (this.originalDoRender) {
+			try {
+				delete (this.tui as any).doRender;
+			} catch {}
+			const im = (globalThis as any).__pi_interactive_mode__;
+			if (im?.renderer) {
+				try {
+					delete im.renderer.doRender;
+				} catch {}
+			}
+			try {
+				this.tui.doRender = this.originalDoRender;
+			} catch {}
 		}
 		if (this.origTuiInvalidate && this.tui.invalidate) {
 			this.tui.invalidate = this.origTuiInvalidate;
@@ -1312,8 +1335,12 @@ export class FixedBottomEditorCompositor {
 	}
 
 	private writeOriginal(data: string): void {
-		const write = this.originalWrite ?? this.terminal.write;
-		write.call(this.terminal, data);
+		try {
+			const write = this.originalWrite ?? this.terminal.write;
+			write.call(this.terminal, data);
+		} catch {
+			// Ignore EIO, EPIPE or closed terminal stream errors on suspend/exit
+		}
 	}
 
 	private restoreRowsDescriptor(): void {
@@ -1337,15 +1364,29 @@ export class FixedBottomEditorCompositor {
 		for (const target of [this.terminal, this.tui]) {
 			const owner = getOwner(target);
 			if (owner && owner !== this.ownerToken) {
-				throw new Error(
-					"[pi-enhance-tui] fixed bottom editor compositor conflict: terminal/TUI is already owned by another fixed editor",
-				);
+				clearOwner(target, owner);
 			}
 		}
-		if (this.hasTerminalWriteConflict() || this.hasRowsConflict() || this.hasTuiRenderConflict()) {
-			throw new Error(
-				"[pi-enhance-tui] fixed bottom editor compositor conflict: terminal/TUI is already patched by another compositor",
-			);
+		if (this.hasTerminalWriteConflict()) {
+			try {
+				delete (this.terminal as any).write;
+			} catch {}
+		}
+		if (this.hasRowsConflict()) {
+			this.restoreRowsDescriptor();
+		}
+		if (this.hasTuiRenderConflict()) {
+			try {
+				delete (this.tui as any).render;
+				delete (this.tui as any).doRender;
+			} catch {}
+			const im = (globalThis as any).__pi_interactive_mode__;
+			if (im?.renderer) {
+				try {
+					delete im.renderer.render;
+					delete im.renderer.doRender;
+				} catch {}
+			}
 		}
 	}
 
@@ -1364,7 +1405,9 @@ export class FixedBottomEditorCompositor {
 	}
 
 	private hasTuiRenderConflict(): boolean {
-		return hasPrototypeMethodOverride(this.tui, "render") || hasPrototypeMethodOverride(this.tui, "doRender");
+		const im = (globalThis as any).__pi_interactive_mode__;
+		const target = im?.renderer ?? this.tui;
+		return hasPrototypeMethodOverride(target, "render") || hasPrototypeMethodOverride(target, "doRender");
 	}
 
 	private markOwner(): void {

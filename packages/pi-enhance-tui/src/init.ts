@@ -76,7 +76,9 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 		const TermClass = options.ProcessTerminal;
 		const origWrite = TermClass.prototype.write;
 		TermClass.prototype.write = function (this: any, data: string): void {
-			writer!.write(data);
+			try {
+				writer!.write(data);
+			} catch {}
 		};
 		restorers.push(() => {
 			TermClass.prototype.write = origWrite;

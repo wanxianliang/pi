@@ -37,17 +37,25 @@ export class BunTerminalWriter implements TerminalOutputWriter {
 	}
 
 	write(data: string): void {
-		if (this.bunWriter) {
-			this.bunWriter.write(data);
-			this.bunWriter.flush();
-		} else {
-			process.stdout.write(data);
+		try {
+			if (this.bunWriter) {
+				this.bunWriter.write(data);
+				this.bunWriter.flush();
+			} else {
+				process.stdout.write(data);
+			}
+		} catch {
+			// Ignore EIO, EPIPE, or closed terminal stream errors on suspend/exit
 		}
 	}
 
 	flush(): void {
 		if (this.bunWriter) {
-			this.bunWriter.flush();
+			try {
+				this.bunWriter.flush();
+			} catch {
+				// Ignore flush errors on closed stdout
+			}
 		}
 	}
 }
