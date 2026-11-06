@@ -1,6 +1,6 @@
 {
 	"name": "@earendil-works/pi-enhance-tui",
-	"version": "1.4.0",
+	"version": "1.5.0",
 	"description": "High-performance enhancements and Bun runtime optimizations for pi-tui",
 	"type": "module",
 	"main": "dist/index.js",
@@ -12,7 +12,7 @@
 		}
 	},
 	"scripts": {
-		"clean": "shx rm -rf dist",
+		"clean": "node ../../scripts/package-files.mjs clean dist",
 		"build": "tsc -p tsconfig.build.json",
 		"test": "node --test test/*.test.ts",
 		"prepublishOnly": "npm run clean && npm run build"
@@ -39,9 +39,6 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/pi-tui": "1.4.0"
-	},
-	"devDependencies": {
-		"shx": "0.4.0"
+		"@earendil-works/pi-tui": "1.5.0"
 	}
 }
