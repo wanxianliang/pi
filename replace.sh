@@ -12,10 +12,13 @@ SCOPE="$HOME/.bun/install/global/node_modules/@earendil-works"
 # Local @earendil-works packages to install into the bun global scope.
 PACKAGES=(chord ai tui pi-enhance-tui telemetry codemode mcp durable env agent coding-agent)
 
-echo -e "${YELLOW}[1/2] Building project...${NC}"
+echo -e "${YELLOW}[1/3] Hydrating model data...${NC}"
+(cd "$ROOT" && npm run hydrate:model-data)
+
+echo -e "${YELLOW}[2/3] Building project...${NC}"
 (cd "$ROOT" && npm run build:offline)
 
-echo -e "${YELLOW}[2/2] Installing built packages into bun global scope...${NC}"
+echo -e "${YELLOW}[3/3] Installing built packages into bun global scope...${NC}"
 mkdir -p "$SCOPE"
 for dir in "${PACKAGES[@]}"; do
 	src="$ROOT/packages/$dir"
