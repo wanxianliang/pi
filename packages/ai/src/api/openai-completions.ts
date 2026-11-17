@@ -849,8 +849,7 @@ function buildParams(
 		if (compat.zaiToolStream) {
 			(params as any).tool_stream = true;
 		}
-	} else if (hasToolHistory(context.messages)) {
-		// Anthropic (via LiteLLM/proxy) requires tools param when conversation has tool_calls/tool_results
+	} else if (compat.requiresToolsWithToolHistory && hasToolHistory(context.messages)) {
 		params.tools = [];
 	}
 
@@ -1213,12 +1212,7 @@ export function convertMessages(
 			return `${prefix}_${hash}`;
 		}
 
-		// OpenAI rejects long tool call IDs: 40 characters here, and more than 64 in the Responses API that
-		// OpenRouter forwards OpenAI models to. OpenRouter can route a model to any provider, so its IDs get
-		// the same cap. A hash keeps two IDs that share their first characters distinct.
-		if ((model.provider === "openai" || isOpenRouterModel(model)) && id.length > 40) {
-			return `${id.slice(0, 31)}_${shortHash(id).slice(0, 8)}`;
-		}
+		if (model.provider === "openai") return id.length > 40 ? id.slice(0, 40) : id;
 		return id;
 	};
 
@@ -1527,6 +1521,7 @@ function parseChunkUsage(
 		prompt_cache_hit_tokens?: number;
 		prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
 		completion_tokens_details?: { reasoning_tokens?: number };
+		reasoning_tokens?: number;
 	},
 	model: Model<"openai-completions">,
 ): AssistantMessage["usage"] {
@@ -1554,7 +1549,7 @@ function parseChunkUsage(
 		output: outputTokens,
 		cacheRead: cacheReadTokens,
 		cacheWrite: cacheWriteTokens,
-		reasoning: rawUsage.completion_tokens_details?.reasoning_tokens || 0,
+		reasoning: rawUsage.completion_tokens_details?.reasoning_tokens || rawUsage.reasoning_tokens || 0,
 		totalTokens: input + outputTokens + cacheReadTokens + cacheWriteTokens,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
@@ -1658,6 +1653,7 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		requiresToolResultName: false,
 		requiresAssistantAfterToolResult: false,
 		requiresNonNullAssistantContent: false,
+		requiresToolsWithToolHistory: false,
 		requiresThinkingAsText: false,
 		requiresReasoningContentOnAssistantMessages: isDeepSeek,
 		thinkingFormat: isDeepSeek
@@ -1716,6 +1712,7 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 			model.compat.requiresAssistantAfterToolResult ?? detected.requiresAssistantAfterToolResult,
 		requiresNonNullAssistantContent:
 			model.compat.requiresNonNullAssistantContent ?? detected.requiresNonNullAssistantContent,
+		requiresToolsWithToolHistory: model.compat.requiresToolsWithToolHistory ?? detected.requiresToolsWithToolHistory,
 		requiresThinkingAsText: model.compat.requiresThinkingAsText ?? detected.requiresThinkingAsText,
 		requiresReasoningContentOnAssistantMessages:
 			model.compat.requiresReasoningContentOnAssistantMessages ??

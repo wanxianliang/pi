@@ -220,7 +220,7 @@ class FramedSettingsPanel implements Component {
 		this.theme = theme;
 	}
 
-	render(width: number): string[] {
+	render(width: number): readonly string[] {
 		const safeWidth = Math.max(1, Math.floor(width));
 		if (safeWidth < 8) return this.content.render(safeWidth);
 		const innerWidth = Math.max(1, safeWidth - 4);

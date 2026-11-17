@@ -16,7 +16,7 @@ export interface CardBoxOptions {
 	variant?: CardBoxVariant;
 	status?: CardBoxStatus;
 	spinnerFrame?: string;
-	contentLines: string[];
+	contentLines: readonly string[];
 	width: number;
 	maxHeightRunning?: number;
 	maxHeightFinished?: number;

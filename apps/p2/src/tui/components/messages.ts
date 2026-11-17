@@ -3,6 +3,7 @@
 // label with the guest "unverified name" note, peer attribution, reply quote, plugin note, files and image count.
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Box, Container, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
+import { plainReferences } from "../../runtime/references.ts";
 import type { TuiSettings } from "../../runtime/tui-preferences.ts";
 import { createMarkdownTransform, type MarkdownTransformer } from "../../runtime/tui-renderers.ts";
 import type { Item } from "../../web/transcript.ts";
@@ -22,11 +23,12 @@ export type MessageContext = RenderContext & {
 type UserItem = Extract<Item, { type: "user" }>;
 
 /** OSC 133 prompt zones: pi-tui uses them for prompt jumps and strips them from screen lines. */
-function zone(lines: string[]): string[] {
-	if (lines.length === 0) return lines;
-	lines[0] = OSC133_ZONE_START + lines[0];
-	lines[lines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
-	return lines;
+function zone(lines: readonly string[]): string[] {
+	const zoned = [...lines];
+	if (zoned.length === 0) return zoned;
+	zoned[0] = OSC133_ZONE_START + zoned[0];
+	zoned[zoned.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + zoned[zoned.length - 1];
+	return zoned;
 }
 
 /** Rebuilds baked content when the theme changed (section 5.4). */
@@ -39,7 +41,7 @@ abstract class Themed extends Container {
 		this.themeVersion = ctx.theme.version;
 	}
 	protected abstract rebuild(): void;
-	override render(width: number): string[] {
+	override render(width: number): readonly string[] {
 		if (this.themeVersion !== this.ctx.theme.version) {
 			this.themeVersion = this.ctx.theme.version;
 			this.rebuild();
@@ -84,7 +86,8 @@ export class UserMessageComponent extends Themed {
 		const bg = (text: string) => theme.bg("userMessageBg", text);
 		const markdown = (paddingY: number) =>
 			new Markdown(
-				safeText(item.text),
+				// File references show as the files' names where the message placed them.
+				safeText(plainReferences(item.text)),
 				paddingY ? pad : 0,
 				paddingY,
 				this.ctx.theme.markdown,
@@ -161,7 +164,7 @@ export class AssistantMessageComponent extends Themed {
 		this.rebuild();
 	}
 
-	override render(width: number): string[] {
+	override render(width: number): readonly string[] {
 		const lines = super.render(width);
 		return this.hasToolCalls ? lines : zone(lines);
 	}

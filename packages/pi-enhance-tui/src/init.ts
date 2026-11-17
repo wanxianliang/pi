@@ -99,7 +99,7 @@ export function initPiEnhanceTui(options?: EnhanceTuiOptions): EnhanceTuiInstanc
 	}
 
 	const ANSI_BG_REGEX = /\x1b\[(?:4[0-8]|10[0-7]|48;[25];[^m]+)m|\x1b\[49m/g;
-	function stripAnsiBackgrounds(lines: string[]): string[] {
+	function stripAnsiBackgrounds(lines: readonly string[]): string[] {
 		const result: string[] = [];
 		for (const line of lines) {
 			const clean = line.replace(ANSI_BG_REGEX, "");
