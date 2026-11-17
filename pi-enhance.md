@@ -1,6 +1,6 @@
 # Pi Agent 增强扩展与源码修改说明 (vs 官方 upstream/main)
 
-> **当前基准版本**：`upstream/main @ 4b11a7228` (v1.5.0)
+> **当前基准版本**：`upstream/main @ 1f6f319bb` (v1.5.2)
 > **真实净增量比对命令**：`git diff upstream/main...HEAD` (三点比较，消除历史合并噪声)  
 > **同步脚本**：`bash update_code_from_pi.sh` (自动 fetch 校验、生成物冲突处理、锁文件生成与不变量校验)
 
@@ -21,14 +21,16 @@
 | `packages/coding-agent/src/core/extensions/runner.ts` | `createContext` 暴露 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool`，提供 `emitContextEnhancements` 与 `emitTools`，兼容上游 `normalizeBuildSystemPromptOptions` |
 | `packages/coding-agent/src/core/extensions/types.ts` | 声明 `getAllToolDefinitions`、`emitAgentEvent`、`executeTool` 接口扩展，并在 `ContextEvent` / `ContextEventResult` / `ToolCallEventBase` / `ExtensionContextActions` 中声明扩展字段 |
 | `packages/coding-agent/src/core/keybindings.ts` | 在 macOS (darwin) 下为 `app.tools.expand` 追加 `super+o` 快捷键 |
-| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: 1.5.0` 依赖（内部包版本对齐上游 1.5.0）及 `build:binary` 构建前置步骤 |
-| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (1.5.0) 依赖锁信息 |
+| `packages/coding-agent/package.json` | 添加 `@earendil-works/pi-enhance-tui: 1.5.2` 依赖（内部包版本对齐上游 1.5.2）及 `build:binary` 构建前置步骤 |
+| `packages/coding-agent/install-lock/package-lock.json` | 记录 `@earendil-works/pi-enhance-tui` (1.5.2) 依赖锁信息 |
 | `package.json` | 在全局 `build` / `build:offline` 脚本中插入 `pi-enhance-tui` 构建步骤（兼容官方最新 `durable`、`codemode` 与 `mcp` 构建） |
-| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (1.5.0) workspace 软链接及依赖项 |
+| `package-lock.json` | 注册 `@earendil-works/pi-enhance-tui` (1.5.2) workspace 软链接及依赖项 |
 | `tsconfig.json` | 映射 `@earendil-works/pi-enhance-tui` 路径别名 |
 | `vitest.base.ts` | 映射 `@earendil-works/pi-enhance-tui` 测试路径别名 |
 | `.npmrc` | 配置 `link-workspace-packages=deep`、`prefer-workspace-packages=true` 与 `registry=https://registry.npmjs.org/`（国内镜像缺失 `@earendil-works/elanor-*` 等官方制品 tarball，需回退官方源） |
 | `.gitignore` | 忽略本地 `plan/archive/`、`.codegraph/` 与 `pi-bundle.tar.gz` |
+| `apps/p2/src/tui/components/{bash-execution,messages,tool-execution,visual-truncate}.ts` | 适配上游 `pi-tui` 的 `Component.render(): readonly string[]` 只读返回类型：`zone()` 改为复制后再注入 OSC 133 标记，渲染缓存与 `visualLines` 均改用 `readonly string[]` |
+| `apps/p2/test/p2/tui-render.test.ts` | 测试辅助 `plain()` 参数改为 `readonly string[]` |
 
 > **已退役的修改点**：`packages/ai/scripts/generate-models.ts`（离线模型元数据缓存与抓取回退补丁）已随官方 #11368 `feat(ai): refactor provider definitions` 整体迁入 `packages/ai/catalog/`，上游改为 `catalog/generate.ts --strict` 单一实现，本地补丁相应退役，`packages/ai` 恢复 100% 官方纯净。若后续仍需离线生成，应在 `catalog/sources/` 内以新补丁方式引入，而非恢复旧文件。
 
@@ -104,12 +106,13 @@
 - **改动详情**：在 macOS 平台 (`process.platform === "darwin"`) 下为 `app.tools.expand` 追加 `super+o` 快捷键绑定。
 
 ### 9. 构建与工程配置修改
-- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: 1.5.0` 依赖与 `build:binary` 前置构建；`clean`/`copy-assets` 等脚本沿用上游 `scripts/package-files.mjs`（上游已用其替换 `shx`）。
+- `packages/coding-agent/package.json`：添加 `@earendil-works/pi-enhance-tui: 1.5.2` 依赖与 `build:binary` 前置构建；`clean`/`copy-assets` 等脚本沿用上游 `scripts/package-files.mjs`（上游已用其替换 `shx`）。
 - `package.json`：在根目录 `build` 与 `build:offline` 中添加 `packages/pi-enhance-tui` 的构建步骤。
 - `tsconfig.json` & `vitest.base.ts`：添加 `@earendil-works/pi-enhance-tui` 的路径映射及别名解析。
-- `package-lock.json`、`install-lock/package-lock.json`：注册并锁定本地 workspace 包 (1.5.0)。（注：官方在 #5653 已移除 `npm-shrinkwrap.json`）。
+- `package-lock.json`、`install-lock/package-lock.json`：注册并锁定本地 workspace 包 (1.5.2)。（注：官方在 #5653 已移除 `npm-shrinkwrap.json`）。
 - `.npmrc`：开启 `link-workspace-packages=deep` 与 `prefer-workspace-packages=true`，并显式指定 `registry=https://registry.npmjs.org/`。
 - `.gitignore`：追加本地打包及临时文件夹忽略。
+- `apps/p2`：适配上游 `pi-tui` 的 `Component.render(): readonly string[]` 只读返回类型（`zone()` 复制后注入 OSC 133 标记，缓存、`visualLines` 与测试辅助 `plain()` 改用 `readonly string[]`），恢复 `cd apps/p2 && npm run check` 通过。
 
 ---
 
